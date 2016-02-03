@@ -115,7 +115,7 @@ int stk500_getsync(PROGRAMMER * pgm) {
 * transmit an AVR device command and return the results; 'cmd' and
 * 'res' must point to at least a 4 byte data buffer
 */
-static int stk500_cmd(PROGRAMMER *pgm, const unsigned char *cmd, unsigned char *res) {
+static int stk500_cmd(PROGRAMMER *pgm, const unsigned char cmd[4], unsigned char res[4]) {
 	unsigned char buf[32];
 
 	buf[0] = Cmnd_STK_UNIVERSAL;

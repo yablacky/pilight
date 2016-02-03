@@ -74,7 +74,7 @@ typedef struct programmer_t {
   void (*powerdown)      (struct programmer_t * pgm);
   int  (*program_enable) (struct programmer_t * pgm, AVRPART * p);
   int  (*chip_erase)     (struct programmer_t * pgm, AVRPART * p);
-  int  (*cmd)            (struct programmer_t * pgm, unsigned char cmd[4],
+  int  (*cmd)            (struct programmer_t * pgm, const unsigned char cmd[4],
                           unsigned char res[4]);
   int  (*spi)            (struct programmer_t * pgm, unsigned char cmd[],
                           unsigned char res[], int count);

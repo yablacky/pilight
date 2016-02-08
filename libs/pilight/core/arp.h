@@ -26,4 +26,4 @@
  */
 
 void arp_add_host(const char *host_name);
-int arp_resolv(char *if_name, char *srcmac, char *dstmac, char **ip);
+int arp_resolv(const char *if_name, const char *srcmac, const char *dstmac, char **ip);

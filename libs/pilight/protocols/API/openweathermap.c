@@ -73,7 +73,7 @@ static void *openweathermapParse(void *param) {
 	struct JsonNode *jdata = NULL;
 	struct JsonNode *jmain = NULL;
 	struct JsonNode *jsys = NULL;
-	struct settings_t *wnode = MALLOC(sizeof(struct settings_t));
+	struct settings_t *wnode = MALLOC_OR_EXIT(sizeof(struct settings_t));
 
 	int interval = 86400, ointerval = 86400, event = 0;
 	int firstrun = 1, nrloops = 0, timeout = 0;
@@ -92,36 +92,22 @@ static void *openweathermapParse(void *param) {
 
 	memset(&typebuf, '\0', 255);
 
-	if(wnode == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-
 	int has_country = 0, has_location = 0;
 	if((jid = json_find_member(json, "id"))) {
-		jchild = json_first_child(jid);
-		while(jchild) {
+		json_foreach(jchild, jid) {
 			has_country = 0, has_location = 0;
-			jchild1 = json_first_child(jchild);
 
-			while(jchild1) {
+			json_foreach(jchild1, jchild) {
 				if(strcmp(jchild1->key, "location") == 0) {
+					// TODO: check type for string.
 					has_location = 1;
-					if((wnode->location = MALLOC(strlen(jchild1->string_)+1)) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
-					strcpy(wnode->location, jchild1->string_);
+					wnode->location = STRDUP_OR_EXIT(jchild1->string_);
 				}
 				if(strcmp(jchild1->key, "country") == 0) {
+					// TODO: check type for string.
 					has_country = 1;
-					if((wnode->country = MALLOC(strlen(jchild1->string_)+1)) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
-					strcpy(wnode->country, jchild1->string_);
+					wnode->country = STRDUP_OR_EXIT(jchild1->string_);
 				}
-				jchild1 = jchild1->next;
 			}
 			if(has_country == 1 && has_location == 1) {
 				wnode->thread = thread;
@@ -137,7 +123,6 @@ static void *openweathermapParse(void *param) {
 				FREE(wnode);
 				wnode = NULL;
 			}
-			jchild = jchild->next;
 		}
 	}
 
@@ -165,7 +150,7 @@ static void *openweathermapParse(void *param) {
 			data = http_get_content(url, &tp, &ret, &size);
 			if(ret == 200) {
 				if(strstr(typebuf, "application/json") != NULL) {
-					if(json_validate(data) == true) {
+					if(json_validate(data, NULL) == true) {
 						if((jdata = json_decode(data)) != NULL) {
 							if((jmain = json_find_member(jdata, "main")) != NULL
 							   && (jsys = json_find_member(jdata, "sys")) != NULL) {
@@ -330,8 +315,8 @@ static int checkValues(JsonNode *code) {
 
 static int createCode(JsonNode *code) {
 	struct settings_t *wtmp = settings;
-	char *country = NULL;
-	char *location = NULL;
+	const char *country = NULL;
+	const char *location = NULL;
 	double itmp = 0;
 	time_t currenttime = 0;
 

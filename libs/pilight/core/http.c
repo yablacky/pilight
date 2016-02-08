@@ -62,7 +62,7 @@ char *http_process_request(char *url, int method, char **type, int *code, int *s
 	size_t bufsize = BUFFER_SIZE;
 	char ip[INET_ADDRSTRLEN+1], *content = NULL, *host = NULL, *auth = NULL, *auth64 = NULL;
 	char *page = NULL, *tok = NULL;
-	char recvBuff[BUFFER_SIZE+1], *header = MALLOC(bufsize);
+	char recvBuff[BUFFER_SIZE+1], *header = MALLOC_OR_EXIT(bufsize);
 	unsigned short port = 0, sslfree = 0, entropyfree = 0;
 	size_t len = 0, tlen = 0, plen = 0;
 
@@ -72,11 +72,6 @@ char *http_process_request(char *url, int method, char **type, int *code, int *s
 
 	*size = 0;
 
-	if(header == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	
 	memset(header, '\0', bufsize);
 	memset(recvBuff, '\0', BUFFER_SIZE+1);
 	memset(&serv_addr, '\0', sizeof(struct sockaddr_in));
@@ -98,29 +93,17 @@ char *http_process_request(char *url, int method, char **type, int *code, int *s
 	len = strlen(url);
 	if((tok = strstr(&url[plen], "/"))) {
 		tlen = (size_t)(tok-url)-plen+1;
-		if((host = MALLOC(tlen+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		host = MALLOC_OR_EXIT(tlen+1);
 		strncpy(host, &url[plen-1], tlen);
 		host[tlen] = '\0';
-		if((page = MALLOC(len-tlen)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}		
+		page = MALLOC_OR_EXIT(len-tlen);
 		strcpy(page, &url[tlen+(plen-1)]);
 	} else {
 		tlen = strlen(url)-(plen-1);
-		if((host = MALLOC(tlen+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		host = MALLOC_OR_EXIT(tlen+1);
 		strncpy(host, &url[(plen-1)], tlen);
 		host[tlen] = '\0';
-		if((page = MALLOC(2)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		page = MALLOC_OR_EXIT(2);
 		strcpy(page, "/");
 	}
 	if((tok = strstr(host, "@"))) {
@@ -129,10 +112,7 @@ char *http_process_request(char *url, int method, char **type, int *code, int *s
 			pglen -= 1;
 		}
 		tlen = (size_t)(tok-host);
-		if((auth = MALLOC(tlen+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		auth = MALLOC_OR_EXIT(tlen+1);
 		strncpy(auth, &host[0], tlen);
 		auth[tlen] = '\0';
 		strncpy(&host[0], &url[plen+tlen], len-(plen+tlen+pglen));
@@ -193,103 +173,67 @@ char *http_process_request(char *url, int method, char **type, int *code, int *s
 		len = (size_t)snprintf(&header[0], bufsize, "POST %s HTTP/1.0\r\n", page);
 		if(len >= bufsize) {
 			bufsize += BUFFER_SIZE;
-			if((header = REALLOC(header, bufsize)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			header = REALLOC_OR_EXIT(header, bufsize);
 		}
 		len += (size_t)snprintf(&header[len], bufsize - len, "Host: %s\r\n", host);
 		if(len >= bufsize) {
 			bufsize += BUFFER_SIZE;
-			if((header = REALLOC(header, bufsize)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			header = REALLOC_OR_EXIT(header, bufsize);
 		}
 		if(auth64 != NULL) {
 			len += (size_t)snprintf(&header[len], bufsize - len, "Authorization: Basic %s\r\n", auth64);
 			if(len >= bufsize) {
 				bufsize += BUFFER_SIZE;
-				if((header = REALLOC(header, bufsize)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				header = REALLOC_OR_EXIT(header, bufsize);
 			}
 		}
 		len += (size_t)snprintf(&header[len], bufsize - len, "User-Agent: %s\r\n", USERAGENT);
 		if(len >= bufsize) {
 			bufsize += BUFFER_SIZE;
-			if((header = REALLOC(header, bufsize)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			header = REALLOC_OR_EXIT(header, bufsize);
 		}
 		len += (size_t)snprintf(&header[len], bufsize - len, "Content-Type: %s\r\n", contype);
 		if(len >= bufsize) {
 			bufsize += BUFFER_SIZE;
-			if((header = REALLOC(header, bufsize)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			header = REALLOC_OR_EXIT(header, bufsize);
 		}
 		len += (size_t)snprintf(&header[len], bufsize - len, "Content-Length: %d\r\n\r\n", (int)strlen(post));
 		if(len >= bufsize) {
 			bufsize += BUFFER_SIZE;
-			if((header = REALLOC(header, bufsize)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			header = REALLOC_OR_EXIT(header, bufsize);
 		}
 		len += (size_t)snprintf(&header[len], bufsize - len, "%s", post);
 		if(len >= bufsize) {
 			bufsize += BUFFER_SIZE;
-			if((header = REALLOC(header, bufsize)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			header = REALLOC_OR_EXIT(header, bufsize);
 		}
 	} else if(method == HTTP_GET) {
 		len = (size_t)snprintf(&header[0], bufsize, "GET %s HTTP/1.0\r\n", page);
 		if(len >= bufsize) {
 			bufsize += BUFFER_SIZE;
-			if((header = REALLOC(header, bufsize)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			header = REALLOC_OR_EXIT(header, bufsize);
 		}
 		len += (size_t)snprintf(&header[len], bufsize - len, "Host: %s\r\n", host);
 		if(len >= bufsize) {
 			bufsize += BUFFER_SIZE;
-			if((header = REALLOC(header, bufsize)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			header = REALLOC_OR_EXIT(header, bufsize);
 		}
 		if(auth64 != NULL) {
 			len += (size_t)snprintf(&header[len], bufsize - len, "Authorization: Basic %s\r\n", auth64);
 			if(len >= bufsize) {
 				bufsize += BUFFER_SIZE;
-				if((header = REALLOC(header, bufsize)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				header = REALLOC_OR_EXIT(header, bufsize);
 			}
 		}
 		len += (size_t)snprintf(&header[len], bufsize - len, "User-Agent: %s\r\n", USERAGENT);
 		if(len >= bufsize) {
 			bufsize += BUFFER_SIZE;
-			if((header = REALLOC(header, bufsize)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			header = REALLOC_OR_EXIT(header, bufsize);
 		}
 		len += (size_t)snprintf(&header[len], bufsize - len, "Connection: close\r\n\r\n");
 		if(len >= bufsize) {
 			bufsize += BUFFER_SIZE;
-			if((header = REALLOC(header, bufsize)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			header = REALLOC_OR_EXIT(header, bufsize);
 		}
 	}
 
@@ -366,11 +310,7 @@ char *http_process_request(char *url, int method, char **type, int *code, int *s
 			break;
 		}
 
-		if((content = REALLOC(content, (size_t)(*size+bytes+1))) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-
+		content = REALLOC_OR_EXIT(content, (size_t)(*size+bytes+1));
 		memset(&content[*size], '\0', (size_t)(bytes+1));
 		strncpy(&content[*size], recvBuff, (size_t)(bytes));
 		*size += bytes;

@@ -57,17 +57,16 @@ static int webserver_https_port = WEBSERVER_HTTPS_PORT;
 static int webserver_http_port = WEBSERVER_HTTP_PORT;
 static int webserver_cache = 1;
 static int webgui_websockets = WEBGUI_WEBSOCKETS;
-static char *webserver_authentication_username = NULL;
-static char *webserver_authentication_password = NULL;
+static const char *webserver_authentication_username = NULL;
+static const char *webserver_authentication_password = NULL;
 static unsigned short webserver_loop = 1;
-static char *webserver_root = NULL;
+static const char *webserver_root = NULL;
 #ifdef WEBSERVER_HTTPS
 static struct mg_server *mgserver[WEBSERVER_WORKERS+1];
 #else
 static struct mg_server *mgserver[WEBSERVER_WORKERS];
 #endif
 static char *recvBuff = NULL;
-static unsigned short webserver_root_free = 0;
 
 static int sockfd = 0;
 
@@ -113,9 +112,9 @@ int webserver_gc(void) {
 		pthread_cond_signal(&webqueue_signal);
 	}
 
-	if(webserver_root_free) {
-		FREE(webserver_root);
-	}
+	webserver_root = NULL;
+	webserver_authentication_password = NULL;
+	webserver_authentication_username = NULL;
 
 #ifdef WEBSERVER_HTTPS
 	for(i=0;i<WEBSERVER_WORKERS+1;i++) {
@@ -174,14 +173,7 @@ static void webserver_create_404(const char *in, unsigned char **p) {
 char *webserver_mimetype(const char *str) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	char *mimetype = MALLOC(strlen(str)+1);
-	if(!mimetype) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	memset(mimetype, '\0', strlen(str)+1);
-	strcpy(mimetype, str);
-	return mimetype;
+	return STRDUP_OR_EXIT(str);
 }
 
 static int webserver_auth_handler(struct mg_connection *conn) {
@@ -306,9 +298,9 @@ static int webserver_parse_rest(struct mg_connection *conn) {
 				}
 			} else if(type == 2) {
 				struct JsonNode *value = NULL;
-				char *type = NULL;
-				char *key = NULL;
-				char *sval = NULL;
+				const char *type = NULL;
+				const char *key = NULL;
+				const char *sval = NULL;
 				double nval = 0.0;
 				int dec = 0;
 				if(json_find_string(jcode, "type", &type) != 0) {
@@ -383,10 +375,7 @@ static int webserver_parse_rest(struct mg_connection *conn) {
 							if(registry_get_number(key, &nval, &dec) == 0) {
 								char *out = NULL;
 								int len = snprintf(NULL, 0, "%*.f", dec, nval);
-								if((out = MALLOC(len+1)) == NULL) {
-									fprintf(stderr, "out of memory\n");
-									exit(EXIT_FAILURE);
-								}
+								out = MALLOC_OR_EXIT(len+1);
 								snprintf(out, len, "%*.f", dec, nval);
 								mg_send_data(conn, out, len);
 								FREE(out);
@@ -511,10 +500,7 @@ static int webserver_request_handler(struct mg_connection *conn) {
 				/* Check if the webserver_root is terminated by a slash. If not, than add it */
 				for(q=0;q<n;q++) {
 					size_t l = strlen(webserver_root)+strlen(conn->uri)+strlen(array[q])+4;
-					if((request = REALLOC(request, l)) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
+					request = REALLOC_OR_EXIT(request, l);
 					memset(request, '\0', l);
 					if(webserver_root[strlen(webserver_root)-1] == '/') {
 #ifdef __FreeBSD__
@@ -532,10 +518,7 @@ static int webserver_request_handler(struct mg_connection *conn) {
 				array_free(&array, n);
 			} else if(webserver_root != NULL && conn->uri != NULL) {
 				size_t wlen = strlen(webserver_root)+strlen(conn->uri)+2;
-				if((request = MALLOC(wlen)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				request = MALLOC_OR_EXIT(wlen);
 				memset(request, '\0', wlen);
 				/* If a file was requested add it to the webserver path to create the absolute path */
 				if(webserver_root[strlen(webserver_root)-1] == '/') {
@@ -560,11 +543,7 @@ static int webserver_request_handler(struct mg_connection *conn) {
 			if(!dot || dot == request) {
 				mimetype = webserver_mimetype("text/plain");
 			} else {
-				if((ext = REALLOC(ext, strlen(dot)+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				memset(ext, '\0', strlen(dot)+1);
+				ext = REALLOC_OR_EXIT(ext, strlen(dot)+1);
 				strcpy(ext, dot+1);
 
 				if(strcmp(ext, "html") == 0) {
@@ -640,7 +619,7 @@ static int webserver_request_handler(struct mg_connection *conn) {
 					fclose(fp);
 				} else {
 					if(filehandler == NULL) {
-						filehandler = MALLOC(sizeof(struct filehandler_t));
+						filehandler = MALLOC_OR_EXIT(sizeof(struct filehandler_t));
 						filehandler->bytes = NULL;
 						filehandler->length = (unsigned int)size;
 						filehandler->ptr = 0;
@@ -687,7 +666,7 @@ static int webserver_request_handler(struct mg_connection *conn) {
 						return MG_TRUE;
 					} else {
 						if(filehandler == NULL) {
-							filehandler = MALLOC(sizeof(struct filehandler_t));
+							filehandler = MALLOC_OR_EXIT(sizeof(struct filehandler_t));
 							filehandler->bytes = fcache_get_bytes(request);
 							filehandler->length = (unsigned int)size;
 							filehandler->ptr = 0;
@@ -724,9 +703,9 @@ static int webserver_request_handler(struct mg_connection *conn) {
 		strncpy(input, conn->content, conn->content_len);
 		input[conn->content_len] = '\0';
 
-		if(json_validate(input) == true) {
+		if(json_validate(input, NULL) == true) {
 			JsonNode *json = json_decode(input);
-			char *action = NULL;
+			const char *action = NULL;
 			if(json_find_string(json, "action", &action) == 0) {
 				if(strcmp(action, "request config") == 0) {
 					JsonNode *jsend = config_print(CONFIG_INTERNAL, "web");
@@ -790,16 +769,8 @@ static void webserver_queue(char *message) {
 
 	pthread_mutex_lock(&webqueue_lock);
 	if(webqueue_number <= 1024) {
-		struct webqueue_t *wnode = MALLOC(sizeof(struct webqueue_t));
-		if(wnode == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		if((wnode->message = MALLOC(strlen(message)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(wnode->message, message);
+		struct webqueue_t *wnode = MALLOC_OR_EXIT(sizeof(struct webqueue_t));
+		wnode->message = STRDUP_OR_EXIT(message);
 
 		if(webqueue_number == 0) {
 			webqueue = wnode;
@@ -968,15 +939,11 @@ int webserver_start(void) {
 	settings_find_number("webserver-https-port", &webserver_https_port);
 #endif
 
-	if(settings_find_string("webserver-root", &webserver_root) != 0) {
-		/* If no webserver port was set, use the default webserver port */
-		if((webserver_root = MALLOC(strlen(WEBSERVER_ROOT)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(webserver_root, WEBSERVER_ROOT);
-		webserver_root_free = 1;
+	if (settings_find_string("webserver-root", &webserver_root) != 0 || *webserver_root == 0) {
+		/* If no webserver port was set or is empty, use the default webserver port */
+		webserver_root = WEBSERVER_ROOT;
 	}
+
 	settings_find_number("webgui-websockets", &webgui_websockets);
 
 	/* Do we turn on webserver caching. This means that all requested files are
@@ -988,19 +955,15 @@ int webserver_start(void) {
 	int z = 0;
 #ifdef WEBSERVER_HTTPS
 	char *pemfile = NULL;
-	int pem_free = 0;
 	if(settings_find_string("pem-file", &pemfile) != 0) {
-		if((pemfile = REALLOC(pemfile, strlen(PEM_FILE)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(pemfile, PEM_FILE);
-		pem_free = 1;
+		pemfile = STRDUP_OR_EXIT(PEM_FILE)
+	} else {
+		pemfile = STRDUP_OR_EXIT(pem_file);
 	}
 
 	char ssl[BUFFER_SIZE];
-	char id[2];
-	memset(ssl, '\0', BUFFER_SIZE);
+	char id[64];
+	memset(ssl, '\0', sizeof(ssl));
 
 	sprintf(id, "%d", z);
 	snprintf(ssl, BUFFER_SIZE, "ssl://%d:%s", webserver_https_port, pemfile);
@@ -1011,9 +974,7 @@ int webserver_start(void) {
 	sprintf(msg, "webserver worker #%d", z);
 	threads_register(msg, &webserver_worker, (void *)(intptr_t)z, 0);
 	z = 1;
-	if(pem_free == 1) {
-		FREE(pemfile);
-	}
+	FREE(pemfile);
 #endif
 
 	char webport[10] = {'\0'};
@@ -1021,12 +982,12 @@ int webserver_start(void) {
 
 	int i = 0;
 	for(i=z;i<WEBSERVER_WORKERS+z;i++) {
-		char id[2];
+		char id[64];
 		sprintf(id, "%d", i);
 		mgserver[i] = mg_create_server((void *)id, webserver_handler);
 		mg_set_option(mgserver[i], "listening_port", webport);
 		mg_set_option(mgserver[i], "auth_domain", "pilight");
-		char msg[25];
+		char msg[64];
 		sprintf(msg, "webserver worker #%d", i);
 		threads_register(msg, &webserver_worker, (void *)(intptr_t)i, 0);
 	}

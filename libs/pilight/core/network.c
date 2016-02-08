@@ -78,11 +78,11 @@ int inetdevs(char ***array) {
 #ifdef _WIN32
 	IP_ADAPTER_INFO *pAdapter = NULL;
 	ULONG buflen = sizeof(IP_ADAPTER_INFO);
-	IP_ADAPTER_INFO *pAdapterInfo = (IP_ADAPTER_INFO *)MALLOC(buflen);
+	IP_ADAPTER_INFO *pAdapterInfo = (IP_ADAPTER_INFO *)MALLOC_OR_EXIT(buflen);
 
 	if(GetAdaptersInfo(pAdapterInfo, &buflen) == ERROR_BUFFER_OVERFLOW) {
 		FREE(pAdapterInfo);
-		pAdapterInfo = MALLOC(buflen);
+		pAdapterInfo = MALLOC_OR_EXIT(buflen);
 	}
 
 	if(GetAdaptersInfo(pAdapterInfo, &buflen) == NO_ERROR) {
@@ -96,14 +96,8 @@ int inetdevs(char ***array) {
 				}
 			}
 			if(match == 0 && strcmp(pAdapter->IpAddressList.IpAddress.String, "0.0.0.0") != 0) {
-				if((*array = REALLOC(*array, sizeof(char *)*(nrdevs+1))) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				if(((*array)[nrdevs] = MALLOC(strlen(pAdapter->AdapterName)+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				*array = REALLOC_OR_EXIT(*array, sizeof(char *)*(nrdevs+1));
+				(*array)[nrdevs] = MALLOC_OR_EXIT(strlen(pAdapter->AdapterName)+1);
 				strcpy((*array)[nrdevs], pAdapter->AdapterName);
 				nrdevs++;
 			}
@@ -157,14 +151,8 @@ int inetdevs(char ***array) {
 					}
 				}
 				if(match == 0) {
-					if((*array = REALLOC(*array, sizeof(char *)*(nrdevs+1))) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
-					if(((*array)[nrdevs] = MALLOC(strlen(ifa->ifa_name)+1)) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
+					*array = REALLOC_OR_EXIT(*array, sizeof(char *)*(nrdevs+1));
+					(*array)[nrdevs] = MALLOC_OR_EXIT(strlen(ifa->ifa_name)+1);
 					strcpy((*array)[nrdevs], ifa->ifa_name);
 					nrdevs++;
 				}
@@ -182,7 +170,7 @@ int inetdevs(char ***array) {
 	return (int)nrdevs;
 }
 
-int dev2mac(char *ifname, char **mac) {
+int dev2mac(const char *ifname, char **mac) {
 	memset(*mac, 0, ETH_ALEN);
 
 #ifdef _WIN32
@@ -251,19 +239,19 @@ int dev2mac(char *ifname, char **mac) {
 }
 
 #ifdef __FreeBSD__
-int dev2ip(char *dev, char **ip, __sa_family_t type) {
+int dev2ip(const char *dev, char **ip, __sa_family_t type) {
 #else
-int dev2ip(char *dev, char **ip, sa_family_t type) {
+int dev2ip(const char *dev, char **ip, sa_family_t type) {
 #endif
 
 #ifdef _WIN32
 	IP_ADAPTER_INFO *pAdapter = NULL;
 	ULONG buflen = sizeof(IP_ADAPTER_INFO);
-	IP_ADAPTER_INFO *pAdapterInfo = MALLOC(buflen);
+	IP_ADAPTER_INFO *pAdapterInfo = MALLOC_OR_EXIT(buflen);
 
 	if(GetAdaptersInfo(pAdapterInfo, &buflen) == ERROR_BUFFER_OVERFLOW) {
 		FREE(pAdapterInfo);
-		pAdapterInfo = MALLOC(buflen);
+		pAdapterInfo = MALLOC_OR_EXIT(buflen);
 	}
 
 	if(GetAdaptersInfo(pAdapterInfo, &buflen) == NO_ERROR) {
@@ -308,7 +296,7 @@ int dev2ip(char *dev, char **ip, sa_family_t type) {
 	return 0;
 }
 
-int host2ip(char *host, char *ip) {
+int host2ip(const char *host, char *ip) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	int rv = 0;
@@ -527,10 +515,10 @@ void rep_freeifaddrs(struct ifaddrs *ifaddr) {
 }
 #endif
 
-int whitelist_check(char *ip) {
+int whitelist_check(const char *ip) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	char *whitelist = NULL;
+	const char *whitelist = NULL;
 	unsigned int client[4] = {0};
 	int x = 0, i = 0, error = 1;
 	unsigned int n = 0;
@@ -559,7 +547,7 @@ int whitelist_check(char *ip) {
 
 
 	if(whitelist_cache == NULL) {
-		char *tmp = whitelist;
+		const char *tmp = whitelist;
 		x = 0;
 		/* Loop through all whitelised ip addresses */
 		while(*tmp != '\0') {
@@ -575,24 +563,12 @@ int whitelist_check(char *ip) {
 			/* Each ip address is either terminated by a comma or EOL delimiter */
 			if(*tmp == '\0' || *tmp == ',') {
 				x = 0;
-				if((whitelist_cache = REALLOC(whitelist_cache, (sizeof(unsigned int ***)*(whitelist_number+1)))) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				if((whitelist_cache[whitelist_number] = MALLOC(sizeof(unsigned int **)*2)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				whitelist_cache = REALLOC_OR_EXIT(whitelist_cache, (sizeof(unsigned int ***)*(whitelist_number+1)));
+				whitelist_cache[whitelist_number] = MALLOC_OR_EXIT(sizeof(unsigned int **)*2);
 				/* Lower boundary */
-				if((whitelist_cache[whitelist_number][0] = MALLOC(sizeof(unsigned int *)*4)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				whitelist_cache[whitelist_number][0] = MALLOC_OR_EXIT(sizeof(unsigned int *)*4);
 				/* Upper boundary */
-				if((whitelist_cache[whitelist_number][1] = MALLOC(sizeof(unsigned int *)*4)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				whitelist_cache[whitelist_number][1] = MALLOC_OR_EXIT(sizeof(unsigned int *)*4);
 
 				/* Turn the whitelist ip address into a upper and lower boundary.
 				   If the ip address doesn't contain a wildcard, then the upper

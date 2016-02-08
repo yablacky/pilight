@@ -33,27 +33,27 @@
 static int run(struct rules_t *obj, struct JsonNode *arguments, char **ret, enum origin_t origin) {
 	struct timeval t1;
 	char *p = *ret;
-	int r = 0, min = 1, max = 10;
+	int argc = 0, r = 0, min = 1, max = 10;
 
 	struct JsonNode *childs = json_first_child(arguments);
-	if(childs == NULL) {
+	json_foreach(childs, arguments) {
+		switch(childs->tag) {
+			case JSON_STRING: r = atoi(childs->string_); break;
+			case JSON_NUMBER: r = (int)childs->number_; break;
+			default:
+				logprintf(LOG_ERR, "RANDOM requires a minimum and maximum value e.g. RANDOM(1, 10)");
+				return -1;
+		}
+		switch(argc++) {
+			case 0: min = r; break;
+			case 1: max = r; break;
+			default:
+				logprintf(LOG_ERR, "RANDOM only takes two arguments e.g. RANDOM(1, 10)");
+				return -1;
+		}
+	}
+	if(argc == 0) {
 		logprintf(LOG_ERR, "RANDOM requires a minimum and maximum value e.g. RANDOM(1, 10)");
-		return -1;
-	}
-	if(childs->tag == JSON_STRING) {
-		min = atoi(childs->string_);
-	}
-	childs = childs->next;
-	if(childs == NULL) {
-		logprintf(LOG_ERR, "RANDOM requires a minimum and maximum value e.g. RANDOM(1, 10)");
-		return -1;
-	}
-	if(childs->tag == JSON_STRING) {
-		max = atoi(childs->string_);
-	}
-
-	if(childs->next != NULL) {
-		logprintf(LOG_ERR, "RANDOM only takes two arguments e.g. RANDOM(1, 10)");
 		return -1;
 	}
 

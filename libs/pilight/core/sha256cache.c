@@ -48,7 +48,7 @@ int sha256cache_gc(void) {
 	return 1;
 }
 
-void sha256cache_remove_node(struct sha256cache_t **cache, char *name) {
+void sha256cache_remove_node(struct sha256cache_t **cache, const char *name) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	struct sha256cache_t *currP, *prevP;
@@ -72,7 +72,7 @@ void sha256cache_remove_node(struct sha256cache_t **cache, char *name) {
 	}
 }
 
-int sha256cache_rm(char *name) {
+int sha256cache_rm(const char *name) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	sha256cache_remove_node(&sha256cache, name);
@@ -81,7 +81,7 @@ int sha256cache_rm(char *name) {
 	return 1;
 }
 
-int sha256cache_add(char *name) {
+int sha256cache_add(const char *name) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	logprintf(LOG_INFO, "chached new sha256 hash");
@@ -97,23 +97,13 @@ int sha256cache_add(char *name) {
 		len = strlen(name)+1;
 	}
 
-	if((password = MALLOC(len)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	password = MALLOC_OR_EXIT(len);
+	memset(password, 0, len);
 	strcpy(password, name);
 	
-	struct sha256cache_t *node = MALLOC(sizeof(struct sha256cache_t));
-	if(node == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	if((node->name = MALLOC(strlen(name)+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(node->name, name);
-	
+	struct sha256cache_t *node = NULL;
+	CONFIG_ALLOC_NAMED_NODE(node, name);
+
 	for(i=0;i<SHA256_ITERATIONS;i++) {
 		sha256_init(&ctx);
 		sha256_starts(&ctx, 0);
@@ -129,13 +119,13 @@ int sha256cache_add(char *name) {
 		sprintf(&node->hash[i], "%02x", output[i/2]);
 	}
 	
-	node->next = sha256cache;
-	sha256cache = node;
+	CONFIG_PREPEND_NODE_TO_LIST(node, sha256cache);
+
 	FREE(password);
 	return 0;
 }
 
-char *sha256cache_get_hash(char *name) {
+const char *sha256cache_get_hash(const char *name) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	struct sha256cache_t *ftmp = sha256cache;

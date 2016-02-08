@@ -62,6 +62,7 @@ typedef struct hardware_t {
 	hwtype_t hwtype;
 	communication_t comtype;
 	struct options_t *options;
+	char *comment;
 
 	int minrawlen;
 	int maxrawlen;

@@ -32,7 +32,7 @@ typedef struct sha256cache_t {
 struct sha256cache_t *sha256cache;
 
 int sha256cache_gc(void);
-void sha256cache_remove_node(struct sha256cache_t **sha256cache, char *name);
-int sha256cache_rm(char *name);
-int sha256cache_add(char *name);
-char *sha256cache_get_hash(char *name);
+void sha256cache_remove_node(struct sha256cache_t **sha256cache, const char *name);
+int sha256cache_rm(const char *name);
+int sha256cache_add(const char *name);
+const char *sha256cache_get_hash(const char *name);

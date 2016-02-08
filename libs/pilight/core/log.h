@@ -41,7 +41,7 @@ void log_file_enable(void);
 void log_file_disable(void);
 void log_shell_enable(void);
 void log_shell_disable(void);
-int log_file_set(char *file);
+int log_file_set(const char *file);
 void log_level_set(int level);
 int log_level_get(void);
 int log_gc(void);

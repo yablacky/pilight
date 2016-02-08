@@ -151,15 +151,11 @@ void logprintf(int prio, const char *format_str, ...) {
 	struct timeval tv;
 	struct tm tm;
 	va_list ap, apcpy;
-	char fmt[64], buf[64], *line = MALLOC(128);
+	char fmt[64], buf[64], *line = MALLOC_OR_EXIT(128);
 	int save_errno = -1, pos = 0, bytes = 0;
 
 	memset(&tm, '\0', sizeof(struct tm));
 
-	if(line == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
 	save_errno = errno;
 
 	memset(line, '\0', 128);
@@ -213,10 +209,7 @@ void logprintf(int prio, const char *format_str, ...) {
 			fprintf(stderr, "ERROR: unproperly formatted logprintf message %s\n", format_str);
 		} else {
 			va_end(apcpy);
-			if((line = REALLOC(line, (size_t)bytes+(size_t)pos+3)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			line = REALLOC_OR_EXIT(line, (size_t)bytes+(size_t)pos+3);
 			va_start(ap, format_str);
 			pos += vsprintf(&line[pos], format_str, ap);
 			va_end(ap);
@@ -238,17 +231,8 @@ void logprintf(int prio, const char *format_str, ...) {
 				pthread_mutex_lock(&logqueue_lock);
 			}
 			if(logqueue_number < 1024) {
-				struct logqueue_t *node = MALLOC(sizeof(logqueue_t));
-				if(node == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				if((node->line = MALLOC((size_t)pos+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				memset(node->line, '\0', (size_t)pos+1);
-				strcpy(node->line, line);
+				struct logqueue_t *node = MALLOC_OR_EXIT(sizeof(logqueue_t));
+				node->line = STRDUP_OR_EXIT(line);
 				node->next = NULL;
 
 				if(logqueue_number == 0) {
@@ -337,22 +321,21 @@ void log_shell_disable(void) {
 	shelllog = 0;
 }
 
-int log_file_set(char *log) {
+int log_file_set(const char *log) {
 	struct stat s;
 	struct stat sb;
 	char *logpath = NULL;
 	FILE *lf = NULL;
 
+	char buf[strlen(log) + 1];
+	strcpy(buf, log);
 	atomiclock();
-	/* basename isn't thread safe */
-	char *filename = basename(log);
+	/* basename isn't thread safe and it requires a non-const ptr */
+	char *filename = basename(buf);
 	atomicunlock();
 
 	size_t i = (strlen(log)-strlen(filename));
-	if((logpath = REALLOC(logpath, i+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	logpath = REALLOC_OR_EXIT(logpath, i+1);
 	memset(logpath, '\0', i+1);
 	strncpy(logpath, log, i);
 
@@ -379,10 +362,7 @@ int log_file_set(char *log) {
 			}
 		} else {
 			if(S_ISDIR(s.st_mode)) {
-				if((logfile = REALLOC(logfile, strlen(log)+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				logfile = REALLOC_OR_EXIT(logfile, strlen(log)+1);
 				strcpy(logfile, log);
 			} else {
 				logprintf(LOG_ERR, "the log folder %s does not exist", logpath);
@@ -391,10 +371,7 @@ int log_file_set(char *log) {
 			}
 		}
 	} else {
-		if((logfile = REALLOC(logfile, strlen(log)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		logfile = REALLOC_OR_EXIT(logfile, strlen(log)+1);
 		strcpy(logfile, log);
 	}
 

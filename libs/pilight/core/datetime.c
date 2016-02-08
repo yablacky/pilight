@@ -571,7 +571,7 @@ char *coord2tz(double longitude, double latitude) {
 	return tz;
 }
 
-time_t datetime2ts(int year, int month, int day, int hour, int minutes, int seconds, char *tz) {
+time_t datetime2ts(int year, int month, int day, int hour, int minutes, int seconds, const char *tz) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	atomiclock();
@@ -609,7 +609,7 @@ time_t datetime2ts(int year, int month, int day, int hour, int minutes, int seco
 	return t;
 }
 
-int tzoffset(char *tz1, char *tz2) {
+int tzoffset(const char *tz1, const char *tz2) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	atomiclock();
@@ -677,7 +677,7 @@ int ctzoffset(void) {
 	return (int)((tm1 - tm2)/3600);
 }
 
-int isdst(time_t t, char *tz) {
+int isdst(time_t t, const char *tz) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	char oritz[64];

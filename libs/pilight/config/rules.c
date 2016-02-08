@@ -44,100 +44,81 @@ static int rules_parse(JsonNode *root) {
 	int have_error = 0, match = 0, x = 0;
 	unsigned int i = 0;
 	struct JsonNode *jrules = NULL;
-	char *rule = NULL;
+	const char *rule = NULL;
 	double active = 1.0;
 
 	if(root->tag == JSON_OBJECT) {
-		jrules = json_first_child(root);
-		while(jrules) {
+		json_foreach(jrules, root) {
 			i++;
-			if(jrules->tag == JSON_OBJECT) {
-				if(json_find_string(jrules, "rule", &rule) != 0) {
-					logprintf(LOG_ERR, "config rule #%d \"%s\", missing \"rule\"", i, jrules->key);
+			if(jrules->tag != JSON_OBJECT) {
+				continue;
+			}
+			if(json_find_string(jrules, "rule", &rule) != 0) {
+				logprintf(LOG_ERR, "config rule #%d \"%s\", missing \"rule\"", i, jrules->key);
+				have_error = 1;
+				break;
+			}
+			active = 1.0;
+			json_find_number(jrules, "active", &active);
+
+			struct rules_t *tmp = rules;
+			match = 0;
+			while(tmp) {
+				if(strcmp(tmp->name, jrules->key) == 0) {
+					match = 1;
+					break;
+				}
+				tmp = tmp->next;
+			}
+			if(match == 1) {
+				logprintf(LOG_ERR, "config rule #%d \"%s\" already exists", i, jrules->key);
+				have_error = 1;
+				break;
+			}
+			for(x=0;x<strlen(jrules->key);x++) {
+				if(!isalnum(jrules->key[x]) && jrules->key[x] != '-' && jrules->key[x] != '_') {
+					logprintf(LOG_ERR, "config rule #%d \"%s\", not alphanumeric", i, jrules->key);
 					have_error = 1;
 					break;
-				} else {
-					active = 1.0;
-					json_find_number(jrules, "active", &active);
-
-					struct rules_t *tmp = rules;
-					match = 0;
-					while(tmp) {
-						if(strcmp(tmp->name, jrules->key) == 0) {
-							match = 1;
-							break;
-						}
-						tmp = tmp->next;
-					}
-					if(match == 1) {
-						logprintf(LOG_ERR, "config rule #%d \"%s\" already exists", i, jrules->key);
-						have_error = 1;
-						break;
-					}
-					for(x=0;x<strlen(jrules->key);x++) {
-						if(!isalnum(jrules->key[x]) && jrules->key[x] != '-' && jrules->key[x] != '_') {
-							logprintf(LOG_ERR, "config rule #%d \"%s\", not alphanumeric", i, jrules->key);
-							have_error = 1;
-							break;
-						}
-					}
-
-					struct rules_t *node = MALLOC(sizeof(struct rules_t));
-					if(node == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
-					node->next = NULL;
-					node->values = NULL;
-					node->jtrigger = NULL;
-					node->nrdevices = 0;
-					node->status = 0;
-					node->devices = NULL;
-					node->actions = NULL;
-					node->nr = i;
-					if((node->name = MALLOC(strlen(jrules->key)+1)) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
-					strcpy(node->name, jrules->key);
-					clock_gettime(CLOCK_MONOTONIC, &node->timestamp.first);
-					if(event_parse_rule(rule, node, 0, 1) == -1) {
-						have_error = 1;
-					}
-					clock_gettime(CLOCK_MONOTONIC, &node->timestamp.second);
-					logprintf(LOG_INFO, "rule #%d %s was parsed in %.6f seconds", node->nr, node->name,
-						((double)node->timestamp.second.tv_sec + 1.0e-9*node->timestamp.second.tv_nsec) -
-						((double)node->timestamp.first.tv_sec + 1.0e-9*node->timestamp.first.tv_nsec));
-
-					node->status = 0;
-					if((node->rule = MALLOC(strlen(rule)+1)) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
-					strcpy(node->rule, rule);
-					node->active = (unsigned short)active;
-
-					tmp = rules;
-					if(tmp) {
-						while(tmp->next != NULL) {
-							tmp = tmp->next;
-						}
-						tmp->next = node;
-					} else {
-						node->next = rules;
-						rules = node;
-					}
-					/*
-					 * In case of an error, we do want to
-					 * save a pointer to our faulty rule
-					 * so it can be properly garbage collected.
-					 */
-					if(have_error == 1) {
-						break;
-					}
 				}
 			}
-			jrules = jrules->next;
+
+			struct rules_t *node = NULL;
+			CONFIG_ALLOC_NAMED_NODE(node, jrules->key);
+			node->next = NULL;
+			node->values = NULL;
+			node->jtrigger = NULL;
+			node->nrdevices = 0;
+			node->status = 0;
+			node->devices = NULL;
+			node->actions = NULL;
+			node->nr = i;
+			char *non_const_rule = STRDUP_OR_EXIT(rule);
+			clock_gettime(CLOCK_MONOTONIC, &node->timestamp.first);
+			if(event_parse_rule(non_const_rule, node, 0, 1) == -1) {
+				have_error = 1;
+			}
+			clock_gettime(CLOCK_MONOTONIC, &node->timestamp.second);
+			FREE(non_const_rule);
+			non_const_rule = NULL;
+			logprintf(LOG_INFO, "rule #%d %s was parsed in %.6f seconds", node->nr, node->name,
+				((double)node->timestamp.second.tv_sec + 1.0e-9*node->timestamp.second.tv_nsec) -
+				((double)node->timestamp.first.tv_sec + 1.0e-9*node->timestamp.first.tv_nsec));
+
+			node->status = 0;
+			node->rule = STRDUP_OR_EXIT(rule);
+			node->active = (unsigned short)active;
+
+			CONFIG_APPEND_NODE_TO_LIST(node, rules);
+
+			/*
+			 * In case of an error, we do want to
+			 * save a pointer to our faulty rule
+			 * so it can be properly garbage collected.
+			 */
+			if(have_error == 1) {
+				break;
+			}
 		}
 	} else {
 		logprintf(LOG_ERR, "config rules should be placed in an object");

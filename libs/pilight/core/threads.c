@@ -55,25 +55,17 @@ struct threadqueue_t *threads_register(const char *id, void *(*function)(void *p
 		pthread_mutex_lock(&threadqueue_lock);
 	}
 
-	struct threadqueue_t *tnode = MALLOC(sizeof(struct threadqueue_t));
-	if(tnode == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	struct threadqueue_t *tnode = NULL;
+	CONFIG_ALLOC_UNNAMED_NODE(tnode);
 
-	struct timeval tcurrent;
-	memset(&tcurrent, '\0', sizeof(struct timeval));
+	struct timeval tcurrent = { 0 };
 	gettimeofday(&tcurrent, NULL);
 
 	tnode->ts = 1000000 * (unsigned int)tcurrent.tv_sec + (unsigned int)tcurrent.tv_usec;
 	tnode->function = function;
 	tnode->running = 0;
 	tnode->force = force;
-	if((tnode->id = MALLOC(strlen(id)+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(tnode->id, id);
+	tnode->id = STRDUP_OR_EXIT(id);
 	tnode->param = param;
 	memset(&tnode->pth, '\0', sizeof(pthread_t));
 	tnode->next = NULL;
@@ -88,16 +80,7 @@ struct threadqueue_t *threads_register(const char *id, void *(*function)(void *p
 	memset(&tnode->cpu_usage.ts, '\0', sizeof(struct timespec));
 	tnode->cpu_usage.starts = 0;
 
-	struct threadqueue_t *tmp = threadqueue;
-	if(tmp) {
-		while(tmp->next != NULL) {
-			tmp = tmp->next;
-		}
-		tmp->next = tnode;
-	} else {
-		tnode->next = tmp;
-		threadqueue = tnode;
-	}
+	CONFIG_APPEND_NODE_TO_LIST(tnode, threadqueue);
 	threadqueue_number++;
 
 	if(threads_initialized == 1) {

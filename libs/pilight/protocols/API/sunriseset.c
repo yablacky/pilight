@@ -269,7 +269,7 @@ static void threadGC(void) {
 }
 
 static int checkValues(JsonNode *code) {
-	char *sun = NULL;
+	const char *sun = NULL;
 
 	if(json_find_string(code, "sun", &sun) == 0) {
 		if(strcmp(sun, "rise") != 0 && strcmp(sun, "set") != 0) {

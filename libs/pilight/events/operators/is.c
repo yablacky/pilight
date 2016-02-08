@@ -25,7 +25,7 @@
 #include "../../core/dso.h"
 #include "is.h"
 
-static void operatorIsCallback(char *a, char *b, char **ret) {
+static void operatorIsCallback(const char *a, const char *b, char **ret) {
 	if(strcmp(a, b) == 0) {
 		strcpy(*ret, "1");
 	} else {

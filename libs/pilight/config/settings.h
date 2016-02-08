@@ -25,7 +25,7 @@
 struct config_t *config_settings;
 
 int settings_find_number(const char *name, int *out);
-int settings_find_string(const char *name, char **out);
+int settings_find_string(const char *name, const char **out);
 void settings_init(void);
 
 #endif

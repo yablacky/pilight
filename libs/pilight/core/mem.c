@@ -150,7 +150,15 @@ void *_calloc(unsigned long a, unsigned long b, const char *file, int line) {
 void _free(void *a, const char *file, int line) {
 	if(memdbg == 1) {
 		if(a == NULL) {
+			/* The next warning is "wrong" because the definition of free() allows
+			** to call free() with NULL pointer which means just do nothing.
+			** This make sense because NULL does not always mean "already deallocated"
+			** it may also mean "not even allocated". Both cases are fine:
+			** In the first case the caller has NULLed its reference to the deallocated
+			** memory, which is perfect. In the second case its an initialized NULL pointer,
+			** which is obviously perfect.
 			fprintf(stderr, "WARNING: calling free on already freed pointer in %s at line #%d\n", file, line);
+			*/
 		} else {
 			struct mallocs_t *currP, *prevP;
 			int match = 0;
@@ -180,4 +188,63 @@ void _free(void *a, const char *file, int line) {
 	} else {
 		free(a);
 	}
+}
+
+/**
+ * Allocate memory. Terminate the app almost gracefully on memory allocation failure.
+ * @param int len Number of bytes to allocate. If null, the return value is NULL.
+ * @return void* Pointer to allcated memory. NULL only if len was NULL.
+ */
+void *_malloc_or_exit(unsigned long len, const char* file, int lino) {
+	void *p = MALLOC(len);
+	if(p != NULL || len == 0)
+		return p;
+	fprintf(stderr, "out of memory allocating %lu bytes at %s(%d)\n",
+		len, file ? file : __FILE__, file ? lino : __LINE__);
+	exit(EXIT_FAILURE);
+}
+
+/**
+ * Reallocate memory. Terminate the app almost gracefully on memory allocation failure.
+ * @param void* p Previously allocated buffer or NULL.
+ * @param int len Number of bytes to allocate now. If null, the return value is NULL.
+ * @return void* Pointer to allcated memory. NULL only if len was NULL.
+ */
+void *_realloc_or_exit(void *p, unsigned long len, const char* file, int lino) {
+	p = REALLOC(p, len);
+	if(p != NULL || len == 0)
+		return p;
+	fprintf(stderr, "out of memory reallocating %lu bytes at %s(%d)\n",
+		len, file ? file : __FILE__, file ? lino : __LINE__);
+	exit(EXIT_FAILURE);
+	return NULL;
+}
+
+/**
+ * Duplicate a string in separate memory.
+ * @param char* s The string to duplicate. If NULL the return value is NULL.
+ * @return char* The duplicate string. NULL if input string was NULL or on memory allocation failures.
+ */
+char *pilight_strdup(const char *s) {
+	if (s == NULL) {
+		return NULL;
+	}
+	char *p = MALLOC(strlen(s) + 1);
+	return p == NULL ? p : strcpy(p, s);
+}
+
+/**
+ * Duplicate a string in separate memory. Terminate the app almost gracefully on memory allocation failure.
+ * @param char* s The string to duplicate. If NULL the return value is NULL.
+ * @return char* The duplicate string. NULL only if input string was NULL.
+ */
+char *_pilight_strdup_or_exit(const char *s, const char* file, int lino) {
+	char *p =pilight_strdup(s);
+	if(p != NULL || s == NULL) {
+		return p;
+	}
+	fprintf(stderr, "out of memory allocating %lu bytes at %s(%d)\n",
+		(unsigned long)strlen(s)+1, file ? file : __FILE__, file ? lino : __LINE__);
+	exit(EXIT_FAILURE);
+	return NULL;
 }

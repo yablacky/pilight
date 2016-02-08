@@ -142,21 +142,14 @@ int main(int argc, char **argv) {
 	atomicinit();
 	struct options_t *options = NULL;
 	char *args = NULL;
-	char *configtmp = MALLOC(strlen(CONFIG_FILE)+1);
+	char *configtmp = STRDUP_OR_EXIT(CONFIG_FILE);
 	pid_t pid = 0;
-
-	strcpy(configtmp, CONFIG_FILE);
 
 	gc_attach(main_gc);
 
 	/* Catch all exit signals for gc */
 	gc_catch();
-
-	if((progname = MALLOC(12)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(progname, "pilight-raw");
+	progname = STRDUP_OR_EXIT("pilight-raw");
 
 #ifndef _WIN32
 	if(geteuid() != 0) {

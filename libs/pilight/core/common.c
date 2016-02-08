@@ -108,10 +108,11 @@ void array_free(char ***array, int len) {
 			FREE((*array)[i]);
 		}
 		FREE((*array));
+		*array = NULL;
 	}
 }
 
-unsigned int explode(char *str, const char *delimiter, char ***output) {
+unsigned int explode(const char *str, const char *delimiter, char ***output) {
 	if(str == NULL || output == NULL) {
 		return 0;
 	}
@@ -124,8 +125,8 @@ unsigned int explode(char *str, const char *delimiter, char ***output) {
 	while(i < l) {
 		if(strncmp(&str[i], delimiter, p) == 0) {
 			if((i-y) > 0) {
-				*output = REALLOC(*output, sizeof(char *)*(n+1));
-				(*output)[n] = MALLOC((i-y)+1);
+				*output = REALLOC_OR_EXIT(*output, sizeof(char *)*(n+1));
+				(*output)[n] = MALLOC_OR_EXIT((i-y)+1);
 				strncpy((*output)[n], &str[y], i-y);
 				(*output)[n][(i-y)] = '\0';
 				n++;
@@ -135,13 +136,52 @@ unsigned int explode(char *str, const char *delimiter, char ***output) {
 		i++;
 	}
 	if(strlen(&str[y]) > 0) {
-		*output = REALLOC(*output, sizeof(char *)*(n+1));
-		(*output)[n] = MALLOC((i-y)+1);
+		*output = REALLOC_OR_EXIT(*output, sizeof(char *)*(n+1));
+		(*output)[n] = MALLOC_OR_EXIT((i-y)+1);
 		strncpy((*output)[n], &str[y], i-y);
 		(*output)[n][(i-y)] = '\0';
 		n++;
 	}
 	return n;
+}
+
+/**
+ * Concat all strings in a given array to one string divided by a given delimiter.
+ * All NULL input strings are ignored (and do not generate a delimiter).
+ * @param char* delimiter The string to use between input strings. NULL is same as emtpy.
+ * @param size_t argc Number of elements in argv.
+ * @param char** argv The input strings. NULL is ok if argc is 0.
+ * @return char* The joined string, allocated with malloc. Caller must free it.
+ */
+char *str_join(const char *delimiter, size_t argc, const char * const *argv) {
+	char *result = NULL;
+	const char *glue = "";
+	size_t ii = 0, ac = 0, len = 0;
+	if(argc > 0) {
+		if(delimiter == NULL) {
+			delimiter = "";
+		}
+		for(ii = 0; ii < argc; ii++) {
+			if(argv[ii] != NULL) {
+				len += strlen(argv[ii]); 
+				ac++;
+			}
+		}
+		if(ac > 0) {
+			len += strlen(delimiter) * (ac - 1);
+		}
+	}
+	
+	result = MALLOC_OR_EXIT(len+1);
+	*result = '\0';
+	for(ii = 0; ii < argc; ii++) {
+		if(argv[ii] != NULL) {
+			strcat(result, glue);
+			strcat(result, argv[ii]);
+			glue = delimiter;
+		}
+	}
+	return result;
 }
 
 #ifdef _WIN32
@@ -217,26 +257,15 @@ int isrunning(const char *program) {
 }
 #else
 int isrunning(const char *program) {
-	int pid = -1;
-	char *tmp = MALLOC(strlen(program)+1);
-	if(tmp == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(tmp, program);
-	if((pid = findproc(tmp, NULL, 1)) > 0) {
-		FREE(tmp);
-		return pid;
-	}
-	FREE(tmp);
-	return -1;
+	int pid = findproc(program, NULL, 1);
+	return pid > 0 ? pid : -1;
 }
 #endif
 
 #ifdef __FreeBSD__
-int findproc(char *cmd, char *args, int loosely) {
+int findproc(const char *cmd, const char *args, int loosely) {
 #else
-pid_t findproc(char *cmd, char *args, int loosely) {
+pid_t findproc(const char *cmd, const char *args, int loosely) {
 #endif
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
@@ -280,7 +309,7 @@ pid_t findproc(char *cmd, char *args, int loosely) {
 	if((dir = opendir("/proc"))) {
 		while((ent = readdir(dir)) != NULL) {
 			if(isNumeric(ent->d_name) == 0) {
-				snprintf(fname, 512, "/proc/%s/cmdline", ent->d_name);
+				snprintf(fname, sizeof(fname), "/proc/%s/cmdline", ent->d_name);
 				if((fd = open(fname, O_RDONLY, 0)) > -1) {
 					memset(cmdline, '\0', sizeof(cmdline));
 					if((ptr = (int)read(fd, cmdline, sizeof(cmdline)-1)) > -1) {
@@ -363,7 +392,7 @@ pid_t findproc(char *cmd, char *args, int loosely) {
 	return -1;
 }
 
-int isNumeric(char *s) {
+int isNumeric(const char *s) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	if(s == NULL || *s == '\0' || *s == ' ')
@@ -374,7 +403,7 @@ int isNumeric(char *s) {
 	return (*p == '\0') ? 0 : -1;
 }
 
-int nrDecimals(char *s) {
+int nrDecimals(const char *s) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	unsigned int b = 0, c = strlen(s), i = 0;
@@ -498,8 +527,8 @@ static char to_hex(char code) {
   return hex[code & 15];
 }
 
-char *urlencode(char *str) {
-	char *pstr = str, *buf = MALLOC(strlen(str) * 3 + 1), *pbuf = buf;
+char *urlencode(const char *pstr) {
+	char *buf = MALLOC_OR_EXIT(strlen(pstr) * 3 + 1), *pbuf = buf;
 	while(*pstr) {
 		if(isalnum(*pstr) || *pstr == '-' || *pstr == '_' || *pstr == '.' || *pstr == '~')
 			*pbuf++ = *pstr;
@@ -513,7 +542,7 @@ char *urlencode(char *str) {
 	return buf;
 }
 
-char *base64decode(char *src, size_t len, size_t *decsize) {
+char *base64decode(const char *src, size_t len, size_t *decsize) {
   unsigned int i = 0;
   unsigned int j = 0;
   unsigned int l = 0;
@@ -522,10 +551,7 @@ char *base64decode(char *src, size_t len, size_t *decsize) {
   char buf[3];
   char tmp[4];
 
-  dec = MALLOC(0);
-  if(dec == NULL) {
-		return NULL;
-	}
+  dec = NULL;
 
   while(len--) {
     if('=' == src[j]) {
@@ -551,7 +577,7 @@ char *base64decode(char *src, size_t len, size_t *decsize) {
       buf[1] = (char)(((tmp[1] & 0xf) << 4) + ((tmp[2] & 0x3c) >> 2));
       buf[2] = (char)(((tmp[2] & 0x3) << 6) + tmp[3]);
 
-      dec = REALLOC(dec, size + 3);
+      dec = REALLOC_OR_EXIT(dec, size + 3);
       for(i = 0; i < 3; ++i) {
         dec[size++] = buf[i];
       }
@@ -578,13 +604,13 @@ char *base64decode(char *src, size_t len, size_t *decsize) {
     buf[1] = (char)(((tmp[1] & 0xf) << 4) + ((tmp[2] & 0x3c) >> 2));
     buf[2] = (char)(((tmp[2] & 0x3) << 6) + tmp[3]);
 
-    dec = REALLOC(dec, (size_t)(size + (size_t)(i - 1)));
+    dec = REALLOC_OR_EXIT(dec, (size_t)(size + (size_t)(i - 1)));
     for(j = 0; (j < i - 1); ++j) {
       dec[size++] = buf[j];
     }
   }
 
-  dec = REALLOC(dec, size + 1);
+  dec = REALLOC_OR_EXIT(dec, size + 1);
   dec[size] = '\0';
 
   if(decsize != NULL) {
@@ -594,7 +620,7 @@ char *base64decode(char *src, size_t len, size_t *decsize) {
   return dec;
 }
 
-char *base64encode(char *src, size_t len) {
+char *base64encode(const char *src, size_t len) {
   unsigned int i = 0;
   unsigned int j = 0;
   char *enc = NULL;
@@ -602,10 +628,7 @@ char *base64encode(char *src, size_t len) {
   char buf[4];
   char tmp[3];
 
-  enc = MALLOC(0);
-  if(enc == NULL) {
-		return NULL;
-	}
+  enc = NULL;
 
   while(len--) {
     tmp[i++] = *(src++);
@@ -616,7 +639,7 @@ char *base64encode(char *src, size_t len) {
       buf[2] = (char)(((tmp[1] & 0x0f) << 2) + ((tmp[2] & 0xc0) >> 6));
       buf[3] = (char)(tmp[2] & 0x3f);
 
-      enc = REALLOC(enc, size + 4);
+      enc = REALLOC_OR_EXIT(enc, size + 4);
       for(i = 0; i < 4; ++i) {
         enc[size++] = base64table[(int)buf[i]];
       }
@@ -636,17 +659,17 @@ char *base64encode(char *src, size_t len) {
 		buf[3] = (char)(tmp[2] & 0x3f);
 
     for(j = 0; (j < i + 1); ++j) {
-      enc = REALLOC(enc, size+1);
+      enc = REALLOC_OR_EXIT(enc, size+1);
       enc[size++] = base64table[(int)buf[j]];
     }
 
     while((i++ < 3)) {
-      enc = REALLOC(enc, size+1);
+      enc = REALLOC_OR_EXIT(enc, size+1);
       enc[size++] = '=';
     }
   }
 
-  enc = REALLOC(enc, size+1);
+  enc = REALLOC_OR_EXIT(enc, size+1);
   enc[size] = '\0';
 
   return enc;
@@ -664,65 +687,44 @@ void rmsubstr(char *s, const char *r) {
 char *hostname(void) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	char name[255] = {'\0'};
-	char *host = NULL, **array = NULL;
-	unsigned int n = 0, i = 0;
+	char name[255] = {'\0'}, *dot = NULL;
 
-	gethostname(name, 254);
-	if(strlen(name) > 0) {
-		n = explode(name, ".", &array);
-		if(n > 0) {
-			if((host = MALLOC(strlen(array[0])+1)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
-			strcpy(host, array[0]);
-		}
+	gethostname(name, sizeof(name)-1);
+	dot = strchr(name, '.');
+	if (dot != NULL) {
+		*dot = '\0';
 	}
-	for(i=0;i<n;i++) {
-		FREE(array[i]);
-	}
-	if(n > 0) {
-		FREE(array);
-	}
-	return host;
+	return STRDUP_OR_EXIT(name);
 }
 
 char *distroname(void) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	char dist[32];
-	memset(dist, '\0', 32);
-	char *distro = NULL;
+	const char *dist = NULL;
 
 #ifdef _WIN32
-	strcpy(dist, "Windows");
+	dist =  "Windows";
 #elif defined(__FreeBSD__)
-	strcpy(dist, "FreeBSD/0.0");
+	dist = "FreeBSD/0.0";
 #else
 	int rc = 1;
 	struct stat sb;
 	if((rc = stat("/etc/redhat-release", &sb)) == 0) {
-		strcpy(dist, "RedHat/0.0");
+		dist = "RedHat/0.0";
 	} else if((rc = stat("/etc/SuSE-release", &sb)) == 0) {
-		strcpy(dist, "SuSE/0.0");
+		dist = "SuSE/0.0";
 	} else if((rc = stat("/etc/mandrake-release", &sb)) == 0) {
-		strcpy(dist, "Mandrake/0.0");
+		dist = "Mandrake/0.0";
 	} else if((rc = stat("/etc/debian-release", &sb)) == 0) {
-		strcpy(dist, "Debian/0.0");
+		dist = "Debian/0.0";
 	} else if((rc = stat("/etc/debian_version", &sb)) == 0) {
-		strcpy(dist, "Debian/0.0");
+		dist = "Debian/0.0";
 	} else {
-		strcpy(dist, "Unknown/0.0");
+		dist = "Unknown/0.0";
 	}
 #endif
 	if(strlen(dist) > 0) {
-		if((distro = MALLOC(strlen(dist)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(distro, dist);
-		return distro;
+		return STRDUP_OR_EXIT(dist);
 	} else {
 		return NULL;
 	}
@@ -731,7 +733,7 @@ char *distroname(void) {
 /* The UUID is either generated from the
    processor serial number or from the
    onboard LAN controller mac address */
-char *genuuid(char *ifname) {
+char *genuuid(const char *ifname) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	char mac[ETH_ALEN], *upnp_id = NULL, *p = mac;
@@ -759,10 +761,7 @@ char *genuuid(char *ifname) {
 					serial[10] = '-';
 					memmove(&serial[14], &serial[13], 7);
 					serial[13] = '-';
-					if((upnp_id = MALLOC(UUID_LENGTH+1)) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
+					upnp_id = MALLOC_OR_EXIT(UUID_LENGTH+1);
 					strcpy(upnp_id, serial);
 					fclose(fp);
 					return upnp_id;
@@ -774,10 +773,7 @@ char *genuuid(char *ifname) {
 
 #endif
 	if(dev2mac(ifname, &p) == 0) {
-		if((upnp_id = MALLOC(UUID_LENGTH+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		upnp_id = MALLOC_OR_EXIT(UUID_LENGTH+1);
 		memset(upnp_id, '\0', UUID_LENGTH+1);
 		snprintf(upnp_id, UUID_LENGTH,
 				"0000-%02x-%02x-%02x-%02x%02x%02x",
@@ -790,7 +786,7 @@ char *genuuid(char *ifname) {
 }
 
 /* Check if a given file exists */
-int file_exists(char *filename) {
+int file_exists(const char *filename) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	struct stat sb;
@@ -798,7 +794,7 @@ int file_exists(char *filename) {
 }
 
 /* Check if a given path exists */
-int path_exists(char *fil) {
+int path_exists(const char *fil) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	struct stat s;
@@ -806,7 +802,7 @@ int path_exists(char *fil) {
 	strcpy(tmp, fil);
 
 	atomiclock();
-	/* basename isn't thread safe */
+	/* basename isn't thread safe and it requires a non-const ptr */
 	char *filename = basename(tmp);
 	atomicunlock();
 
@@ -821,7 +817,7 @@ int path_exists(char *fil) {
  * dir stat doens't work on windows if path has a trailing slash
  */
 #ifdef _WIN32
-	if(path[i-1] == '\\' || path[i-1] == '/') {
+	if(i > 0 && path[i-1] == '\\' || path[i-1] == '/') {
 		path[i-1] = '\0';
 	}
 #endif
@@ -850,19 +846,19 @@ int path_exists(char *fil) {
 //  1: val > ref
 // -1: val < ref
 //  0: val == ref
-int vercmp(char *val, char *ref) {
+int vercmp(const char *val, const char *ref) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	int vc, rc;
 	long vl, rl;
-	char *vp, *rp;
-	char *vsep, *rsep;
+	const char *vp, *rp;
+	const char *vsep, *rsep;
 
 	if(!val) {
-		strcpy(val, "");
+		val = "";
 	}
 	if(!ref) {
-		strcpy(ref, "");
+		ref = "";
 	}
 	while(1) {
 		vp = val;
@@ -940,7 +936,7 @@ char *uniq_space(char *str){
 	return str;
 }
 
-int str_replace(char *search, char *replace, char **str) {
+int str_replace(const char *search, const char *replace, char **str) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	char *target = *str;

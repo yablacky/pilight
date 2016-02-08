@@ -61,7 +61,7 @@ static void *thread(void *param) {
 
 	FILE *fp = NULL;
 	double itmp = 0;
-	int *id = MALLOC(sizeof(int));
+	int *id = MALLOC_OR_EXIT(sizeof(int));
 	char *content = NULL;
 	int nrloops = 0, nrid = 0, y = 0, interval = 0;
 	double temp_offset = 0.0;
@@ -69,20 +69,13 @@ static void *thread(void *param) {
 
 	threads++;
 
-	if(id == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-
 	if((jid = json_find_member(json, "id"))) {
-		jchild = json_first_child(jid);
-		while(jchild) {
+		json_foreach(jchild, jid) {
 			if(json_find_number(jchild, "id", &itmp) == 0) {
-				id = REALLOC(id, (sizeof(int)*(size_t)(nrid+1)));
+				id = REALLOC_OR_EXIT(id, (sizeof(int)*(size_t)(nrid+1)));
 				id[nrid] = (int)round(itmp);
 				nrid++;
 			}
-			jchild = jchild->next;
 		}
 	}
 
@@ -98,10 +91,7 @@ static void *thread(void *param) {
 					fstat(fileno(fp), &st);
 					bytes = (size_t)st.st_size;
 
-					if((content = REALLOC(content, bytes+1)) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
+					content = REALLOC_OR_EXIT(content, bytes+1);
 					memset(content, '\0', bytes+1);
 
 					if(fread(content, sizeof(char), bytes, fp) == -1) {

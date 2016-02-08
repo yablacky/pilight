@@ -115,6 +115,7 @@ static char *sb_finish(SB *sb)
 static void sb_free(SB *sb)
 {
 	free(sb->start);
+	sb->start = sb->cur = sb->end = NULL;
 }
 
 /*
@@ -331,15 +332,18 @@ static void to_surrogate_pair(uchar_t unicode, uint16_t *uc, uint16_t *lc)
 #define is_space(c) ((c) == '\t' || (c) == '\n' || (c) == '\r' || (c) == ' ')
 #define is_digit(c) ((c) >= '0' && (c) <= '9')
 
-static bool parse_value     (const char **sp, JsonNode        **out);
-static bool parse_string    (const char **sp, char            **out);
-static bool parse_number    (const char **sp, double           *out, int *decimals);
-static bool parse_array     (const char **sp, JsonNode        **out);
-static bool parse_object    (const char **sp, JsonNode        **out);
-static bool parse_hex16     (const char **sp, uint16_t         *out);
+#define node_is_container(node) ((node)->tag == JSON_ARRAY || (node)->tag == JSON_OBJECT)
+
+static bool parse_value     (const char **sp, const char **se, JsonNode        **out);
+static bool parse_string    (const char **sp, const char **se, char            **out);
+static bool parse_number    (const char **sp, const char **se, double           *out, int *decimals);
+static bool parse_array     (const char **sp, const char **se, JsonNode        **out);
+static bool parse_object    (const char **sp, const char **se, JsonNode        **out);
+static bool parse_hex16     (const char **sp, const char **se, uint16_t         *out);
+static bool parse_comment   (const char **sp, const char **se, JsonNode        **out);
 
 static bool expect_literal  (const char **sp, const char *str);
-static void skip_space      (const char **sp);
+#define skip_space(s) while (is_space(**s)) (*(s))++
 
 static void emit_value              (SB *out, const JsonNode *node);
 static void emit_value_indented     (SB *out, const JsonNode *node, const char *space, int indent_level);
@@ -349,6 +353,8 @@ static void emit_array              (SB *out, const JsonNode *array);
 static void emit_array_indented     (SB *out, const JsonNode *array, const char *space, int indent_level);
 static void emit_object             (SB *out, const JsonNode *object);
 static void emit_object_indented    (SB *out, const JsonNode *object, const char *space, int indent_level);
+static bool emit_comment            (SB *out, const JsonNode *object);
+static bool emit_comment_indented   (SB *out, const JsonNode *object, const char *space, int indent_level);
 
 static int write_hex16(char *out, uint16_t val);
 
@@ -367,7 +373,7 @@ JsonNode *json_decode(const char *json)
 	JsonNode *ret;
 
 	skip_space(&s);
-	if (!parse_value(&s, &ret))
+	if (!parse_value(&s, NULL, &ret))
 		return NULL;
 
 	skip_space(&s);
@@ -410,10 +416,12 @@ char *json_stringify(const JsonNode *node, const char *space)
 void json_delete(JsonNode *node)
 {
 	if (node != NULL) {
-		json_remove_from_parent(node);
+		json_remove_from_parent(node);	// frees key already.
 
 		switch (node->tag) {
 			case JSON_STRING:
+			case JSON_LINE_COMMENT:
+			case JSON_BLOCK_COMMENT:
 				free(node->string_);
 				break;
 			case JSON_ARRAY:
@@ -433,55 +441,72 @@ void json_delete(JsonNode *node)
 	}
 }
 
-bool json_validate(const char *json)
+bool json_validate(const char *json, const char **problem)
 {
 	const char *s = json;
 
 	skip_space(&s);
-	if (!parse_value(&s, NULL))
+	if (!parse_value(&s, problem, NULL))
 		return false;
 
 	skip_space(&s);
-	if (*s != 0)
-		return false;
-
-	return true;
+	if (problem)
+		*problem = s;
+	return *s == 0;
 }
 
-JsonNode *json_find_element(JsonNode *array, int index)
+JsonNode *json_find_element(JsonNode *array_or_object, int index)
 {
 	JsonNode *element;
 	int i = 0;
 
-	if (array == NULL || array->tag != JSON_ARRAY)
+	if (array_or_object  == NULL)
 		return NULL;
-
-	json_foreach(element, array) {
-		if (i == index)
-			return element;
-		i++;
+	if (array_or_object->tag == JSON_ARRAY) {
+		json_foreach(element, array_or_object) {
+			if (i++ == index)
+				return element;
+		}
+	} else if (array_or_object->tag == JSON_OBJECT) {
+		json_foreach(element, array_or_object) {
+			if (atoi(element->key) == index)
+				return element;
+		}
 	}
 
 	return NULL;
 }
 
-JsonNode *json_find_member(JsonNode *object, const char *name)
+JsonNode *json_find_member(JsonNode *object_or_array, const char *name)
 {
 	JsonNode *member;
 
-	if (object == NULL || object->tag != JSON_OBJECT)
+	if (object_or_array == NULL)
 		return NULL;
-
-	json_foreach(member, object)
-		if (strcmp(member->key, name) == 0)
-			return member;
+	if (object_or_array->tag == JSON_OBJECT) {
+		json_foreach(member, object_or_array) {
+			if (strcmp(member->key, name) == 0)
+				return member;
+		}
+	} else if (object_or_array->tag == JSON_ARRAY) {
+		// if name is a pure number (leading/trailing spaces ok) treat it as index
+		char *end = NULL;
+		int i = 0, index = strtol(name, &end, 0);
+		skip_space(&end);
+		if (*end == '\0') {
+			json_foreach(member, object_or_array) {
+				if (i++ == index)
+					return member;
+			}
+		}
+	}
 
 	return NULL;
 }
 
 JsonNode *json_first_child(const JsonNode *node)
 {
-	if (node != NULL && (node->tag == JSON_ARRAY || node->tag == JSON_OBJECT))
+	if (node != NULL && node_is_container(node))
 		return node->children.head;
 	return NULL;
 }
@@ -602,6 +627,21 @@ void json_prepend_member(JsonNode *object, const char *key, JsonNode *value)
 	prepend_node(object, value);
 }
 
+void json_append_comment(JsonNode *target, const char *comment)
+{
+	if (comment == NULL)
+		return;
+	if (!node_is_container(target)) {
+		assert(!"target not able to hold comments");
+		return;
+	}
+	JsonNode *node = mknode(strchr(comment, '\n') ? JSON_BLOCK_COMMENT : JSON_LINE_COMMENT);
+	if (node == NULL)
+		out_of_memory();
+	node->string_ = strdup(comment);
+	append_node(target, node);
+}
+
 void json_remove_from_parent(JsonNode *node)
 {
 	JsonNode *parent = node->parent;
@@ -624,70 +664,62 @@ void json_remove_from_parent(JsonNode *node)
 	}
 }
 
-static bool parse_value(const char **sp, JsonNode **out)
+static bool parse_value(const char **sp, const char **se, JsonNode **out)
 {
 	const char *s = *sp;
 
+	if (se) *se = s;
 	switch (*s) {
 		case 'n':
-			if (expect_literal(&s, "null")) {
+			if (expect_literal(sp, "null")) {
 				if (out)
 					*out = json_mknull();
-				*sp = s;
 				return true;
 			}
 			return false;
 
 		case 'f':
-			if (expect_literal(&s, "false")) {
+			if (expect_literal(sp, "false")) {
 				if (out)
 					*out = json_mkbool(false);
-				*sp = s;
 				return true;
 			}
 			return false;
 
 		case 't':
-			if (expect_literal(&s, "true")) {
+			if (expect_literal(sp, "true")) {
 				if (out)
 					*out = json_mkbool(true);
-				*sp = s;
 				return true;
 			}
 			return false;
 
+		case '\'':
 		case '"': {
 			char *str;
-			if (parse_string(&s, out ? &str : NULL)) {
+			if (parse_string(sp, se, out ? &str : NULL)) {
 				if (out)
 					*out = mkstring(str);
-				*sp = s;
 				return true;
 			}
 			return false;
 		}
 
+		case '/':
+			return parse_comment(sp, se, out);
+
 		case '[':
-			if (parse_array(&s, out)) {
-				*sp = s;
-				return true;
-			}
-			return false;
+			return parse_array(sp, se, out);
 
 		case '{':
-			if (parse_object(&s, out)) {
-				*sp = s;
-				return true;
-			}
-			return false;
+			return parse_object(sp, se, out);
 
 		default: {
 			double num;
 			int decimals = 0;
-			if (parse_number(&s, out ? &num : NULL, &decimals)) {
+			if (parse_number(sp, se, out ? &num : NULL, &decimals)) {
 				if (out)
 					*out = json_mknumber(num, decimals);
-				*sp = s;
 				return true;
 			}
 			return false;
@@ -695,34 +727,42 @@ static bool parse_value(const char **sp, JsonNode **out)
 	}
 }
 
-static bool parse_array(const char **sp, JsonNode **out)
+static bool parse_array(const char **sp, const char **se, JsonNode **out)
 {
 	const char *s = *sp;
 	JsonNode *ret = out ? json_mkarray() : NULL;
 	JsonNode *element;
 
+	if (se) *se = s;
 	if (*s++ != '[')
 		goto failure;
 	skip_space(&s);
 
-	if (*s == ']') {
-		s++;
-		goto success;
-	}
-
 	for (;;) {
-		if (!parse_value(&s, out ? &element : NULL))
-			goto failure;
-		skip_space(&s);
-
-		if (out)
-			json_append_element(ret, element);
+		if (parse_comment(&s, se, out ? &element : NULL) && ret) 
+			append_node(ret, element);
 
 		if (*s == ']') {
 			s++;
 			goto success;
 		}
 
+		if (!parse_value(sp, se, out ? &element : NULL))
+			goto failure;
+		skip_space(&s);
+
+		if (out)
+			json_append_element(ret, element);
+
+		if (parse_comment(&s, se, out ? &element : NULL) && ret) 
+			append_node(ret, element);
+
+		if (*s == ']') {
+			s++;
+			goto success;
+		}
+
+		if (se) *se = s;
 		if (*s++ != ',')
 			goto failure;
 		skip_space(&s);
@@ -739,43 +779,55 @@ failure:
 	return false;
 }
 
-static bool parse_object(const char **sp, JsonNode **out)
+static bool parse_object(const char **sp, const char **se, JsonNode **out)
 {
 	const char *s = *sp;
 	JsonNode *ret = out ? json_mkobject() : NULL;
 	char *key;
 	JsonNode *value;
 
+	if (se) *se = s;
 	if (*s++ != '{')
 		goto failure;
 	skip_space(&s);
 
-	if (*s == '}') {
-		s++;
-		goto success;
-	}
-
 	for (;;) {
-		if (!parse_string(&s, out ? &key : NULL))
-			goto failure;
-		skip_space(&s);
-
-		if (*s++ != ':')
-			goto failure_free_key;
-		skip_space(&s);
-
-		if (!parse_value(&s, out ? &value : NULL))
-			goto failure_free_key;
-		skip_space(&s);
-
-		if (out)
-			append_member(ret, key, value);
+		if (parse_comment(&s, se, out ? &value : NULL) && ret) 
+			append_node(ret, value);
 
 		if (*s == '}') {
 			s++;
 			goto success;
 		}
 
+		if (!parse_string(&s, se, out ? &key : NULL))
+			goto failure;
+		skip_space(&s);
+
+		if (se) *se = s;
+		if (*s++ != ':')
+			goto failure_free_key;
+		skip_space(&s);
+
+		if (parse_comment(&s, se, out ? &value : NULL) && ret) 
+			append_node(ret, value);
+
+		if (!parse_value(&s, se, out ? &value : NULL))
+			goto failure_free_key;
+		skip_space(&s);
+
+		if (out)
+			append_member(ret, key, value);
+
+		if (parse_comment(&s, se, out ? &value : NULL) && ret) 
+			append_node(ret, value);
+
+		if (*s == '}') {
+			s++;
+			goto success;
+		}
+
+		if (se) *se = s;
 		if (*s++ != ',')
 			goto failure;
 		skip_space(&s);
@@ -795,26 +847,82 @@ failure:
 	return false;
 }
 
-bool parse_string(const char **sp, char **out)
+bool parse_comment(const char **sp, const char **se, JsonNode **out)
+{
+	const char *s = *sp, *end, *delim = "";
+	size_t len = 0;
+	JsonNode *ret = NULL;
+	JsonTag tag = JSON_TAG_UNDEFINED;
+	SB comment = { 0 };
+
+	if (se) *se = s;
+	while (*s++ == '/') {
+		switch (*s++) {
+		case '/':
+			len = strcspn(s, "\n\r\f\v");
+			*sp = s + len + (s[len] ? 1 : 0); // skip found char but not term zero.
+			tag = tag == JSON_TAG_UNDEFINED ? JSON_LINE_COMMENT : JSON_BLOCK_COMMENT;
+			break;
+		case '*':
+			end = strstr(s, "*/");
+			len = end == NULL ? strlen(s) : end - s;
+			*sp = end + 2; // =strlen("*/")
+			tag = JSON_BLOCK_COMMENT;
+			break;
+		default:
+			s = NULL;
+			break;
+		}
+		// now sp points behind comment. s points to comment. len = lenght of comment.
+		if (s == NULL) {
+			break;
+		}
+		if (out != NULL) {
+			if (comment.start == NULL)
+				sb_init(&comment);
+			sb_puts(&comment, delim);
+			sb_put(&comment, s, len);
+			delim = "\n";
+		}
+		skip_space(sp);
+		s = *sp;
+		if (se) *se = s;
+	}
+
+	if (tag == JSON_TAG_UNDEFINED || out == NULL) {
+		sb_free(&comment);
+		return false;
+	}
+	ret = mknode(tag);
+	if (ret == NULL)
+		out_of_memory();
+	ret->string_ = sb_finish(&comment);
+	*out = ret;
+	return true;
+}
+
+bool parse_string(const char **sp, const char **se, char **out)
 {
 	const char *s = *sp;
 	SB sb;
 	char throwaway_buffer[4];
 		/* enough space for a UTF-8 character */
-	char *b;
+	char *b, quote;
 
-	if (*s++ != '"')
+	if (se) *se = s;
+	quote = *s++;
+	if (quote != '"' && quote != '\'')
 		return false;
 
 	if (out) {
 		sb_init(&sb);
-		sb_need(&sb, 4);
+		sb_need(&sb, sizeof(throwaway_buffer));
 		b = sb.cur;
 	} else {
 		b = throwaway_buffer;
 	}
 
-	while (*s != '"') {
+	while (*s != quote) {
 		unsigned char c = *s++;
 
 		/* Parse next character, and write it to b. */
@@ -822,6 +930,7 @@ bool parse_string(const char **sp, char **out)
 			c = *s++;
 			switch (c) {
 				case '"':
+				case '\'':
 				case '\\':
 				case '/':
 					*b++ = c;
@@ -841,17 +950,20 @@ bool parse_string(const char **sp, char **out)
 				case 't':
 					*b++ = '\t';
 					break;
+				case 'v':
+					*b++ = '\v';
+					break;
 				case 'u':
 				{
 					uint16_t uc, lc;
 					uchar_t unicode;
 
-					if (!parse_hex16(&s, &uc))
+					if (!parse_hex16(&s, se, &uc))
 						goto failed;
 
 					if (uc >= 0xD800 && uc <= 0xDFFF) {
 						/* Handle UTF-16 surrogate pair. */
-						if (*s++ != '\\' || *s++ != 'u' || !parse_hex16(&s, &lc))
+						if (*s++ != '\\' || *s++ != 'u' || !parse_hex16(&s, se, &lc))
 							goto failed; /* Incomplete surrogate pair. */
 						if (!from_surrogate_pair(uc, lc, &unicode))
 							goto failed; /* Invalid surrogate pair. */
@@ -878,7 +990,7 @@ bool parse_string(const char **sp, char **out)
 
 			s--;
 			len = utf8_validate_cz(s);
-			if (len == 0)
+			if (len == 0 || len > sizeof(throwaway_buffer))
 				goto failed; /* Invalid UTF-8 character. */
 
 			while (len--)
@@ -891,7 +1003,7 @@ bool parse_string(const char **sp, char **out)
 		 */
 		if (out) {
 			sb.cur = b;
-			sb_need(&sb, 4);
+			sb_need(&sb, sizeof(throwaway_buffer));
 			b = sb.cur;
 		} else {
 			b = throwaway_buffer;
@@ -920,12 +1032,14 @@ failed:
  *
  * This function takes the strict approach.
  */
-bool parse_number(const char **sp, double *out, int *decimals)
+bool parse_number(const char **sp, const char **se, double *out, int *decimals)
 {
 	const char *s = *sp;
 	if(decimals != NULL) {
 		(*decimals) = 0;
 	}
+
+	if (se) *se = s;
 
 	/* '-'? */
 	if (*s == '-')
@@ -974,14 +1088,6 @@ bool parse_number(const char **sp, double *out, int *decimals)
 	return true;
 }
 
-static void skip_space(const char **sp)
-{
-	const char *s = *sp;
-	while (is_space(*s))
-		s++;
-	*sp = s;
-}
-
 static void emit_value(SB *out, const JsonNode *node)
 {
 	assert(tag_is_valid(node->tag));
@@ -1003,6 +1109,10 @@ static void emit_value(SB *out, const JsonNode *node)
 			break;
 		case JSON_OBJECT:
 			emit_object(out, node);
+			break;
+		case JSON_LINE_COMMENT:
+		case JSON_BLOCK_COMMENT:
+			emit_comment(out, node);
 			break;
 		default:
 			assert(false);
@@ -1031,6 +1141,10 @@ void emit_value_indented(SB *out, const JsonNode *node, const char *space, int i
 		case JSON_OBJECT:
 			emit_object_indented(out, node, space, indent_level);
 			break;
+		case JSON_LINE_COMMENT:
+		case JSON_BLOCK_COMMENT:
+			emit_comment_indented(out, node, space, indent_level);
+			break;
 		default:
 			assert(false);
 	}
@@ -1042,38 +1156,33 @@ static void emit_array_indented(SB *out, const JsonNode *array, const char *spac
 	const JsonNode *tmp = json_first_child(array);
 	int i, x;
 
+	if (element == NULL) {
+		sb_puts(out, "[]");
+		return;
+	}
+
 	if(tmp && (tmp->tag == JSON_STRING || tmp->tag == JSON_NUMBER)) {
-		const JsonNode *element1 = array->children.head;
-
-		if (element1 == NULL) {
-			sb_puts(out, "[]");
-			return;
-		}
-
 		sb_puts(out, "[ ");
-		while (element1 != NULL) {
-			emit_value(out, element1);
-			element1 = element1->next;
-			sb_puts(out, element1 != NULL ? ", " : "");
+		for (; element != NULL; element = element->next) {
+			if (emit_comment_indented(out, element, space, indent_level))
+				continue;
+			emit_value(out, element);
+			sb_puts(out, element->next != NULL ? ", " : "");
 		}
 		sb_puts(out, " ]");
 	} else {
-		if (element == NULL) {
-			sb_puts(out, "[]");
-			return;
-		}
-
 		sb_puts(out, "[");
 		x = 0;
-		while (element != NULL) {
+		for (; element != NULL; element = element->next) {
+			if (emit_comment_indented(out, element, space, indent_level))
+				continue;
 			x++;
 			if(x > 1) {
 				for (i = 0; i < indent_level; i++)
 					sb_puts(out, space);
 			}
 			emit_value_indented(out, element, space, indent_level);
-			element = element->next;
-			sb_puts(out, element != NULL ? ",\n" : "");
+			sb_puts(out, element->next != NULL ? ",\n" : "");
 		}
 		sb_puts(out, "]");
 	}
@@ -1081,20 +1190,17 @@ static void emit_array_indented(SB *out, const JsonNode *array, const char *spac
 
 static void emit_array(SB *out, const JsonNode *array)
 {
-	const JsonNode *element = array->children.head;
+	const JsonNode *element;
 
-	if (element == NULL) {
-		sb_puts(out, "[]");
-		return;
-	}
-
-	sb_puts(out, "[");
-	while (element != NULL) {
+	sb_putc(out, '[');
+	json_foreach_and_all(element, array) {
+		if (emit_comment(out, element))
+			continue;
 		emit_value(out, element);
-		element = element->next;
-		sb_puts(out, element != NULL ? "," : "");
+		if (element->next != NULL)
+			sb_putc(out, ',');
 	}
-	sb_puts(out, "]");
+	sb_putc(out, ']');
 }
 
 static void emit_object(SB *out, const JsonNode *object)
@@ -1102,7 +1208,9 @@ static void emit_object(SB *out, const JsonNode *object)
 	const JsonNode *member;
 
 	sb_putc(out, '{');
-	json_foreach(member, object) {
+	json_foreach_and_all(member, object) {
+		if (emit_comment(out, member))
+			continue;
 		emit_string(out, member->key);
 		sb_putc(out, ':');
 		emit_value(out, member);
@@ -1123,19 +1231,59 @@ static void emit_object_indented(SB *out, const JsonNode *object, const char *sp
 	}
 
 	sb_puts(out, "{\n");
-	while (member != NULL) {
+	for (; member != NULL; member = member->next) {
 		for (i = 0; i < indent_level + 1; i++)
 			sb_puts(out, space);
+		if (emit_comment_indented(out, member, space, indent_level))
+			continue;
 		emit_string(out, member->key);
 		sb_puts(out, ": ");
 		emit_value_indented(out, member, space, indent_level + 1);
 
-		member = member->next;
-		sb_puts(out, member != NULL ? ",\n" : "\n");
+		sb_puts(out, member->next != NULL ? ",\n" : "\n");
 	}
 	for (i = 0; i < indent_level; i++)
 		sb_puts(out, space);
 	sb_putc(out, '}');
+}
+
+static bool emit_comment(SB *out, const JsonNode *object)
+{
+	char *str;
+	switch (object->tag) {
+	case JSON_LINE_COMMENT:
+		sb_puts(out, "//");
+		sb_puts(out, object->string_);
+		sb_puts(out, "\n");
+		break;
+	case JSON_BLOCK_COMMENT:
+		sb_puts(out, "/*");
+		str = object->string_;
+		for (;;) {
+			char *bad = strstr(str, "*/");
+			if (!bad)
+				break;
+			sb_put(out, str, bad - str);
+			sb_puts(out, "* /");
+			str = bad + 2;
+		}
+		sb_puts(out, str);
+		sb_puts(out, "*/");
+		break;
+	default:
+		return false;
+	}
+	return true;
+}
+
+static bool emit_comment_indented(SB *out, const JsonNode *object, const char *space, int indent_level)
+{
+	if (!emit_comment(out, object))
+		return false;
+	if (object->tag == JSON_BLOCK_COMMENT) {
+		sb_puts(out, "\n");
+	}
+	return true;
 }
 
 void emit_string(SB *out, const char *str)
@@ -1276,12 +1424,12 @@ static void emit_number(SB *out, double num, int decimals)
 
 static bool tag_is_valid(unsigned int tag)
 {
-	return (/* tag >= JSON_NULL && */ tag <= JSON_OBJECT);
+	return (/* tag >= JSON_NULL && */ tag <= JSON_TAG_HIGH_VALUE);
 }
 
 static bool number_is_valid(const char *num)
 {
-	return (parse_number(&num, NULL, NULL) && *num == '\0');
+	return (parse_number(&num, NULL, NULL, NULL) && *num == 0);
 }
 
 static bool expect_literal(const char **sp, const char *str)
@@ -1300,13 +1448,15 @@ static bool expect_literal(const char **sp, const char *str)
  * Parses exactly 4 hex characters (capital or lowercase).
  * Fails if any input chars are not [0-9A-Fa-f].
  */
-static bool parse_hex16(const char **sp, uint16_t *out)
+static bool parse_hex16(const char **sp, const char **se, uint16_t *out)
 {
 	const char *s = *sp;
 	uint16_t ret = 0;
 	uint16_t i;
 	uint16_t tmp;
 	char c;
+
+	if (se) *se = s;
 
 	for (i = 0; i < 4; i++) {
 		c = *s++;
@@ -1361,12 +1511,15 @@ bool json_check(const JsonNode *node, char errmsg[256])
 
 	if (node->tag == JSON_BOOL) {
 		if (node->bool_ != false && node->bool_ != true)
-			problem("bool_ is neither false (%d) nor true (%d)", (int)false, (int)true);
+			problem("bool_ is %d which is neither false (%d) nor true (%d)",
+					(int)node->bool_, (int)false, (int)true);
 	} else if (node->tag == JSON_STRING) {
 		if (node->string_ == NULL)
 			problem("string_ is NULL");
 		if (!utf8_validate(node->string_))
 			problem("string_ contains invalid UTF-8");
+		if (node->key != NULL)
+			problem("key should be NULL but is 0x%08x", (unsigned int)node->key);
 	} else if (node->tag == JSON_ARRAY || node->tag == JSON_OBJECT) {
 		JsonNode *head = node->children.head;
 		JsonNode *tail = node->children.tail;
@@ -1409,7 +1562,14 @@ bool json_check(const JsonNode *node, char errmsg[256])
 				problem("tail does not match pointer found by starting at head and following next links");
 		}
 	}
-
+	else if (node->tag == JSON_LINE_COMMENT || node->tag == JSON_BLOCK_COMMENT) {
+		if (node->string_ == NULL)
+			problem("string_ is NULL");
+		if (!utf8_validate(node->string_))
+			problem("string_ contains invalid UTF-8");
+		if (node->key != NULL)
+			problem("key should be NULL but is 0x%08x", (unsigned int)node->key);
+	}
 	return true;
 
 	#undef problem
@@ -1424,7 +1584,7 @@ int json_find_number(JsonNode *object, const char *name, double *out) {
 	return 1;
 }
 
-int json_find_string(JsonNode *object, const char *name, char **out) {
+int json_find_string(JsonNode *object, const char *name, const char **out) {
 	JsonNode *node = json_find_member(object, name);
 	if (node && node->tag == JSON_STRING) {
 		*out = node->string_;

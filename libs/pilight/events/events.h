@@ -23,14 +23,14 @@
 
 typedef struct varcont_t {
 	union {
-		char *string_;
+		const char *string_;
 		double number_;
 	};
 	int decimals_;
 } varcont_t;
 
 void event_cache_device(struct rules_t *obj, char *device);
-int event_lookup_variable(char *var, struct rules_t *obj, int type, struct varcont_t *varcont, int *rtype, unsigned short validate, enum origin_t origin);
+int event_lookup_variable(const char *var, struct rules_t *obj, int type, struct varcont_t *varcont, int *rtype, unsigned short validate, enum origin_t origin);
 int event_parse_rule(char *rule, struct rules_t *obj, int depth, unsigned short validate);
 void *events_clientize(void *param);
 int events_gc(void);

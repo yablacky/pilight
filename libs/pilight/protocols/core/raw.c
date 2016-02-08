@@ -30,7 +30,7 @@
 #include "raw.h"
 
 static int createCode(JsonNode *code) {
-	char *rcode = NULL;
+	const char *rcode = NULL;
 	double repeats = 10;
 	char **array = NULL;
 	unsigned int i = 0, n = 0;

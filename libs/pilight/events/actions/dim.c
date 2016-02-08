@@ -134,10 +134,8 @@ static int checkArguments(struct rules_actions_t *obj) {
 	}
 
 	if((javalues = json_find_member(jto, "value")) != NULL) {
-		jachild = json_first_child(javalues);
-		while(jachild) {
+		json_foreach(jachild, javalues) {
 			nrvalues++;
-			jachild = jachild->next;
 		}
 	}
 	if(nrvalues != 1) {
@@ -148,8 +146,7 @@ static int checkArguments(struct rules_actions_t *obj) {
 	nrvalues = 0;
 	if(jfor != NULL) {
 		if((jcvalues = json_find_member(jfor, "value")) != NULL) {
-			jcchild = json_first_child(jcvalues);
-			while(jcchild) {
+			json_foreach(jcchild, jcvalues) {
 				nrvalues++;
 				if(jcchild->tag == JSON_STRING) {
 					l = explode(jcchild->string_, " ", &array);
@@ -180,7 +177,6 @@ static int checkArguments(struct rules_actions_t *obj) {
 						return -1;
 					}
 				}
-				jcchild = jcchild->next;
 			}
 		}
 		if(nrvalues != 1) {
@@ -192,8 +188,7 @@ static int checkArguments(struct rules_actions_t *obj) {
 	nrvalues = 0;
 	if(jafter != NULL) {
 		if((jdvalues = json_find_member(jafter, "value")) != NULL) {
-			jdchild = json_first_child(jdvalues);
-			while(jdchild) {
+			json_foreach(jdchild, jdvalues) {
 				nrvalues++;
 				if(jdchild->tag == JSON_STRING) {
 					l = explode(jdchild->string_, " ", &array);
@@ -224,7 +219,6 @@ static int checkArguments(struct rules_actions_t *obj) {
 						return -1;
 					}
 				}
-				jdchild = jdchild->next;
 			}
 		}
 		if(nrvalues != 1) {
@@ -236,10 +230,8 @@ static int checkArguments(struct rules_actions_t *obj) {
 	nrvalues = 0;
 	if(jfrom != NULL) {
 		if((jevalues = json_find_member(jfrom, "value")) != NULL) {
-			jechild = json_first_child(jevalues);
-			while(jechild) {
+			json_foreach(jechild, jevalues) {
 				nrvalues++;
-				jechild = jechild->next;
 			}
 		}
 		if(nrvalues != 1) {
@@ -251,8 +243,7 @@ static int checkArguments(struct rules_actions_t *obj) {
 	nrvalues = 0;
 	if(jin != NULL) {
 		if((jfvalues = json_find_member(jin, "value")) != NULL) {
-			jfchild = json_first_child(jfvalues);
-			while(jfchild) {
+			json_foreach(jfchild, jfvalues) {
 				nrvalues++;
 				if(jfchild->tag == JSON_STRING) {
 					l = explode(jfchild->string_, " ", &array);
@@ -283,7 +274,6 @@ static int checkArguments(struct rules_actions_t *obj) {
 						return -1;
 					}
 				}
-				jfchild = jfchild->next;
 			}
 		}
 		if(nrvalues != 1) {
@@ -293,14 +283,12 @@ static int checkArguments(struct rules_actions_t *obj) {
 	}
 
 	if((jbvalues = json_find_member(jdevice, "value")) != NULL) {
-		jbchild = json_first_child(jbvalues);
-		while(jbchild) {
+		json_foreach(jbchild, jbvalues) {
 			if(jbchild->tag == JSON_STRING) {
 				struct devices_t *dev = NULL;
 				if(devices_get(jbchild->string_, &dev) == 0) {
 					if((javalues = json_find_member(jto, "value")) != NULL) {
-						jachild = json_first_child(javalues);
-						while(jachild) {
+						json_foreach(jachild, javalues) {
 							match = 0;
 							if(jachild->tag == JSON_NUMBER) {
 								dimto = jachild->number_;
@@ -357,7 +345,6 @@ static int checkArguments(struct rules_actions_t *obj) {
 								logprintf(LOG_ERR, "internal error 1 in dim action", jbchild->string_);
 								return -1;
 							}
-						jachild = jachild->next;
 						}
 					} else {
 						logprintf(LOG_ERR, "internal error 2 in dim action", jbchild->string_);
@@ -365,8 +352,7 @@ static int checkArguments(struct rules_actions_t *obj) {
 					}
 
 					if((jevalues = json_find_member(jfrom, "value")) != NULL) {
-						jechild = json_first_child(jevalues);
-						while(jechild) {
+						json_foreach(jechild, jevalues) {
 							match = 0;
 							if(jechild->tag == JSON_NUMBER) {
 								dimfrom = jechild->number_;
@@ -423,7 +409,6 @@ static int checkArguments(struct rules_actions_t *obj) {
 								logprintf(LOG_ERR, "device \"%s\" doesn't exists", jbchild->string_);
 								return -1;
 							}
-						jechild = jechild->next;
 						}
 					}
 				} else {
@@ -434,7 +419,6 @@ static int checkArguments(struct rules_actions_t *obj) {
 				logprintf(LOG_ERR, "internal error 4 in dim action", jbchild->string_);
 				return -1;
 			}
-			jbchild = jbchild->next;
 		}
 	} else {
 		logprintf(LOG_ERR, "internal error 5 in dim action", jbchild->string_);
@@ -588,11 +572,7 @@ static void *thread(void *param) {
 		while(opt) {
 			if(strcmp(opt->name, "state") == 0) {
 				if(opt->values->type == JSON_STRING) {
-					if((old_state = MALLOC(strlen(opt->values->string_)+1)) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
-					strcpy(old_state, opt->values->string_);
+					old_state = STRDUP_OR_EXIT(opt->values->string_);
 					match1 = 1;
 				}
 			}
@@ -804,9 +784,7 @@ static void *thread(void *param) {
 		}
 	}
 
-	if(old_state != NULL) {
-		FREE(old_state);
-	}
+	FREE(old_state);
 
 	event_action_stopped(pth);
 
@@ -822,15 +800,13 @@ static int run(struct rules_actions_t *obj) {
 	if((jdevice = json_find_member(obj->parsedargs, "DEVICE")) != NULL &&
 		 (jto = json_find_member(obj->parsedargs, "TO")) != NULL) {
 		if((jbvalues = json_find_member(jdevice, "value")) != NULL) {
-			jbchild = json_first_child(jbvalues);
-			while(jbchild) {
+			json_foreach(jbchild, jbvalues) {
 				if(jbchild->tag == JSON_STRING) {
 					struct devices_t *dev = NULL;
 					if(devices_get(jbchild->string_, &dev) == 0) {
 						event_action_thread_start(dev, action_dim->name, thread, obj);
 					}
 				}
-				jbchild = jbchild->next;
 			}
 		}
 	}

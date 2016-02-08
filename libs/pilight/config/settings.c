@@ -52,99 +52,75 @@ struct config_t *config_settings;
 
 static struct settings_t *settings = NULL;
 
-/* Add a string value to the settings struct */
-static void settings_add_string(const char *name, char *value) {
-	struct settings_t *snode = MALLOC(sizeof(struct settings_t));
-	struct settings_t *tmp = NULL;
-	if(snode == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	if((snode->name = MALLOC(strlen(name)+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(snode->name, name);
-	if((snode->string_ = MALLOC(strlen(value)+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(snode->string_, value);
-	snode->type = JSON_STRING;
-	snode->next = NULL;
-
-	tmp = settings;
+static void settings_add(struct settings_t *snode) {
+	struct settings_t *tmp = settings;
 	if(tmp) {
 		while(tmp->next != NULL) {
 			tmp = tmp->next;
 		}
 		tmp->next = snode;
+		snode->next = NULL;
 	} else {
 		snode->next = settings;
 		settings = snode;
 	}
 }
 
+/* Add a string value to the settings struct */
+static void settings_add_string(const char *name, char *value) {
+	struct settings_t *snode = MALLOC_OR_EXIT(sizeof(struct settings_t));
+	memset(snode, 0, sizeof(*snode));
+	snode->name = STRDUP_OR_EXIT(name);
+	snode->string_ = STRDUP_OR_EXIT(value);
+	snode->type = JSON_STRING;
+
+	settings_add(snode);
+}
+
 /* Add an int value to the settings struct */
 static void settings_add_number(const char *name, int value) {
-	struct settings_t *tmp = NULL;
-	struct settings_t *snode = MALLOC(sizeof(struct settings_t));
-	if(snode == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	if((snode->name = MALLOC(strlen(name)+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(snode->name, name);
+	struct settings_t *snode = MALLOC_OR_EXIT(sizeof(struct settings_t));
+	memset(snode, 0, sizeof(*snode));
+	snode->name = STRDUP_OR_EXIT(name);
 	snode->number_ = value;
 	snode->type = JSON_NUMBER;
-	snode->next = NULL;
 
-	tmp = settings;
-	if(tmp) {
-		while(tmp->next != NULL) {
-			tmp = tmp->next;
-		}
-		tmp->next = snode;
-	} else {
-		snode->next = settings;
-		settings = snode;
-	}
+	settings_add(snode);
+}
+
+/* Add a comment to the last added setting */
+static void settings_add_comment(const char *comment) {
+	struct settings_t *snode = MALLOC_OR_EXIT(sizeof(struct settings_t));
+	memset(snode, 0, sizeof(*snode));
+	snode->string_ = STRDUP_OR_EXIT(comment);
+	snode->type = JSON_LINE_COMMENT;
+
+	settings_add(snode);
 }
 
 /* Retrieve a numeric value from the settings struct */
 int settings_find_number(const char *name, int *out) {
 	struct settings_t *tmp_settings = settings;
 
-	while(tmp_settings) {
-		if(strcmp(tmp_settings->name, name) == 0 && tmp_settings->type == JSON_NUMBER) {
+	for (;tmp_settings; tmp_settings = tmp_settings->next) {
+		if(tmp_settings->type == JSON_NUMBER && strcmp(tmp_settings->name, name) == 0) {
 			*out = tmp_settings->number_;
 			return EXIT_SUCCESS;
 		}
-		tmp_settings = tmp_settings->next;
-	}
-	if(tmp_settings != NULL) {
-		FREE(tmp_settings);
 	}
 
 	return EXIT_FAILURE;
 }
 
 /* Retrieve a string value from the settings struct */
-int settings_find_string(const char *name, char **out) {
+int settings_find_string(const char *name, const char **out) {
 	struct settings_t *tmp_settings = settings;
 
-	while(tmp_settings) {
-		if(strcmp(tmp_settings->name, name) == 0 && tmp_settings->type == JSON_STRING) {
+	for (;tmp_settings; tmp_settings = tmp_settings->next) {
+		if(tmp_settings->type == JSON_STRING && strcmp(tmp_settings->name, name) == 0) {
 			*out = tmp_settings->string_;
 			return EXIT_SUCCESS;
 		}
-		tmp_settings = tmp_settings->next;
-	}
-	if(tmp_settings != NULL) {
-		FREE(tmp_settings);
 	}
 
 	return EXIT_FAILURE;
@@ -160,12 +136,7 @@ static int settings_parse(JsonNode *root) {
 #endif
 	int own_port = -1;
 
-	char *webgui_root = MALLOC(strlen(WEBSERVER_ROOT)+1);
-	if(webgui_root == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(webgui_root, WEBSERVER_ROOT);
+	char *webgui_root = STRDUP_OR_EXIT(WEBSERVER_ROOT);
 #endif
 
 #if !defined(__FreeBSD__) && !defined(_WIN32)
@@ -173,26 +144,24 @@ static int settings_parse(JsonNode *root) {
 	int reti;
 #endif
 
-	JsonNode *jsettings = json_first_child(root);
-
-	while(jsettings) {
+	JsonNode *jsettings = NULL;
+	json_foreach_and_all(jsettings, root) {
+		if(json_is_comment(jsettings)) {
+			settings_add_comment(jsettings->string_);
+			continue;
+		}
 		if(strcmp(jsettings->key, "port") == 0) {
-			if(jsettings->tag != JSON_NUMBER) {
+			if(jsettings->tag != JSON_NUMBER || (int)jsettings->number_ < 1) {
 				logprintf(LOG_ERR, "config setting \"%s\" must contain a number larger than 0", jsettings->key);
 				have_error = 1;
 				goto clear;
-			} else if((int)jsettings->number_ == 0) {
-				logprintf(LOG_ERR, "config setting \"%s\" must contain a number larger than 0", jsettings->key);
-				have_error = 1;
-				goto clear;
-			} else {
-#ifdef WEBSERVER
-				if(strcmp(jsettings->key, "port") == 0) {
-					own_port = (int)jsettings->number_;
-				}
-#endif
-				settings_add_number(jsettings->key, (int)jsettings->number_);
 			}
+#ifdef WEBSERVER
+			if(strcmp(jsettings->key, "port") == 0) {
+				own_port = (int)jsettings->number_;
+			}
+#endif
+			settings_add_number(jsettings->key, (int)jsettings->number_);
 		} else if(strcmp(jsettings->key, "firmware-gpio-reset") == 0
 			|| strcmp(jsettings->key, "firmware-gpio-sck") == 0
 			|| strcmp(jsettings->key, "firmware-gpio-mosi") == 0
@@ -337,10 +306,7 @@ static int settings_parse(JsonNode *root) {
 				have_error = 1;
 				goto clear;
 			} else {
-				if((webgui_root = REALLOC(webgui_root, strlen(jsettings->string_)+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				webgui_root = REALLOC_OR_EXIT(webgui_root, strlen(jsettings->string_)+1);
 				strcpy(webgui_root, jsettings->string_);
 				settings_add_string(jsettings->key, jsettings->string_);
 			}
@@ -533,7 +499,6 @@ static int settings_parse(JsonNode *root) {
 			have_error = 1;
 			goto clear;
 		}
-		jsettings = jsettings->next;
 	}
 
 #ifdef WEBSERVER
@@ -553,9 +518,7 @@ static int settings_parse(JsonNode *root) {
 #endif
 clear:
 #ifdef WEBSERVER
-	if(webgui_root != NULL) {
-		FREE(webgui_root);
-	}
+	FREE(webgui_root);
 #endif
 	return have_error;
 }
@@ -563,22 +526,22 @@ clear:
 static JsonNode *settings_sync(int level, const char *display) {
 	struct JsonNode *root = json_mkobject();
 	struct JsonNode *ntpservers = NULL;
-	struct settings_t *tmp = settings;
+	struct settings_t *tmp = NULL;
 	char *username = NULL, *password = NULL;
 
-	while(tmp) {
-		if(strncmp(tmp->name, "ntpserver", 9) == 0 && tmp->type == JSON_STRING) {
+	for (tmp = settings; tmp; tmp = tmp->next) {
+		if(tmp->type == JSON_STRING && strncmp(tmp->name, "ntpserver", 9) == 0) {
 			if(ntpservers == NULL) {
 				ntpservers = json_mkarray();
 			}
 			json_append_element(ntpservers, json_mkstring(tmp->string_));
 		} else {
-			if(json_find_member(root, "ntp-servers") == NULL && ntpservers != NULL) {
+			if(ntpservers != NULL && json_find_member(root, "ntp-servers") == NULL) {
 				json_append_member(root, "ntp-servers", ntpservers);
 			}
-			if(strcmp(tmp->name, "webserver-authentication-username") == 0 && tmp->type == JSON_STRING) {
+			if(tmp->type == JSON_STRING && strcmp(tmp->name, "webserver-authentication-username") == 0) {
 				username = tmp->string_;
-			} else if(strcmp(tmp->name, "webserver-authentication-password") == 0 && tmp->type == JSON_STRING) {
+			} else if(tmp->type == JSON_STRING && strcmp(tmp->name, "webserver-authentication-password") == 0) {
 				password = tmp->string_;
 			} else if(tmp->type == JSON_NUMBER) {
 				json_append_member(root, tmp->name, json_mknumber((double)tmp->number_, 0));
@@ -592,7 +555,6 @@ static JsonNode *settings_sync(int level, const char *display) {
 			json_append_element(jarray, json_mkstring(password));
 			json_append_member(root, "webserver-authentication", jarray);
 		}
-		tmp = tmp->next;
 	}
 	if(json_find_member(root, "ntp-servers") == NULL && ntpservers != NULL) {
 		json_append_member(root, "ntp-servers", ntpservers);
@@ -607,16 +569,12 @@ static int settings_gc(void) {
 	while(settings) {
 		tmp = settings;
 		FREE(tmp->name);
-		if(tmp->type == JSON_STRING) {
+		if(tmp->type == JSON_STRING || tmp->type == JSON_LINE_COMMENT || tmp->type == JSON_BLOCK_COMMENT) {
 			FREE(tmp->string_);
 		}
 		settings = settings->next;
 		FREE(tmp);
 	}
-	if(settings != NULL) {
-		FREE(settings);
-	}
-
 
 	logprintf(LOG_DEBUG, "garbage collected config settings library");
 	return 1;

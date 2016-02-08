@@ -251,7 +251,7 @@ static int initpacket(char *buf) {
 	return icmplen;
 }
 
-int ping(char *addr) {
+int ping(const char *addr) {
 	char buf[1500], buf1[INET_ADDRSTRLEN+1];
 	struct ip *ip = (struct ip *)buf;
 	struct icmp *icmp = (struct icmp *)(ip + 1);

@@ -76,7 +76,7 @@ static void *thread(void *param) {
 	struct JsonNode *jid = NULL;
 	struct JsonNode *jchild = NULL;
 	struct JsonNode *jchild1 = NULL;
-	char *prog = NULL, *args = NULL, *stopcmd = NULL, *startcmd = NULL;
+	const char *prog = NULL, *args = NULL, *stopcmd = NULL, *startcmd = NULL;
 
 	int interval = 1, nrloops = 0;
 	int pid = 0;
@@ -89,67 +89,29 @@ static void *thread(void *param) {
 	json_find_string(json, "stop-command", &stopcmd);
 	json_find_string(json, "start-command", &startcmd);
 
-	struct settings_t *lnode = MALLOC(sizeof(struct settings_t));
+	struct settings_t *lnode = MALLOC_OR_EXIT(sizeof(struct settings_t));
 	lnode->wait = 0;
 	lnode->hasthread = 0;
 	memset(&lnode->pth, '\0', sizeof(pthread_t));
 
 	if(args != NULL && strlen(args) > 0) {
-		if((lnode->arguments = MALLOC(strlen(args)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(lnode->arguments, args);
+		lnode->arguments = STRDUP_OR_EXIT(args);
 	} else {
 		lnode->arguments = NULL;
 	}
 
-	if(prog != NULL) {
-		if((lnode->program = MALLOC(strlen(prog)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(lnode->program, prog);
-	} else {
-		lnode->program = NULL;
-	}
-
-	if(stopcmd != NULL) {
-		if((lnode->stop = MALLOC(strlen(stopcmd)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(lnode->stop, stopcmd);
-	} else {
-		lnode->stop = NULL;
-	}
-
-	if(startcmd != NULL) {
-		if((lnode->start = MALLOC(strlen(startcmd)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(lnode->start, startcmd);
-	} else {
-		lnode->start = NULL;
-	}
+	lnode->program = STRDUP_OR_EXIT(prog);
+	lnode->stop = STRDUP_OR_EXIT(stopcmd);
+	lnode->start = STRDUP_OR_EXIT(startcmd);
 
 	lnode->name = NULL;
 	if((jid = json_find_member(json, "id"))) {
-		jchild = json_first_child(jid);
-		while(jchild) {
-			jchild1 = json_first_child(jchild);
-			while(jchild1) {
+		json_foreach(jchild, jid) {
+			json_foreach(jchild1, jchild) {
 				if(strcmp(jchild1->key, "name") == 0) {
-					if((lnode->name = MALLOC(strlen(jchild1->string_)+1)) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
-					strcpy(lnode->name, jchild1->string_);
+					lnode->name = STRDUP_OR_EXIT(jchild1->string_);
 				}
-				jchild1 = jchild1->next;
 			}
-			jchild = jchild->next;
 		}
 	}
 
@@ -245,7 +207,7 @@ static void *execute(void *param) {
 }
 
 static int createCode(JsonNode *code) {
-	char *name = NULL;
+	const char *name = NULL;
 	double itmp = -1;
 	int state = -1;
 	int pid = 0;
@@ -347,9 +309,6 @@ static void threadGC(void) {
 		if(tmp->hasthread > 0) pthread_cancel(tmp->pth);
 		settings = settings->next;
 		FREE(tmp);
-	}
-	if(settings != NULL) {
-		FREE(settings);
 	}
 }
 

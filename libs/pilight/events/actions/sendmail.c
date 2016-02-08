@@ -46,7 +46,7 @@ static int checkArguments(struct rules_actions_t *obj) {
 	struct JsonNode *jvalues = NULL;
 	struct JsonNode *jval = NULL;
 	struct JsonNode *jchild = NULL;
-	char *stmp = NULL;
+	const char *stmp = NULL;
 	int nrvalues = 0, itmp = 0;
 #if !defined(__FreeBSD__) && !defined(_WIN32)
 	regex_t regex;
@@ -70,10 +70,8 @@ static int checkArguments(struct rules_actions_t *obj) {
 	}
 	nrvalues = 0;
 	if((jvalues = json_find_member(jsubject, "value")) != NULL) {
-		jchild = json_first_child(jvalues);
-		while(jchild) {
+		json_foreach(jchild, jvalues) {
 			nrvalues++;
-			jchild = jchild->next;
 		}
 	}
 	if(nrvalues > 1) {
@@ -82,10 +80,8 @@ static int checkArguments(struct rules_actions_t *obj) {
 	}
 	nrvalues = 0;
 	if((jvalues = json_find_member(jmessage, "value")) != NULL) {
-		jchild = json_first_child(jvalues);
-		while(jchild) {
+		json_foreach(jchild, jvalues) {
 			nrvalues++;
-			jchild = jchild->next;
 		}
 	}
 	if(nrvalues != 1) {
@@ -94,10 +90,8 @@ static int checkArguments(struct rules_actions_t *obj) {
 	}
 	nrvalues = 0;
 	if((jvalues = json_find_member(jto, "value")) != NULL) {
-		jchild = json_first_child(jvalues);
-		while(jchild) {
+		json_foreach(jchild, jvalues) {
 			nrvalues++;
-			jchild = jchild->next;
 		}
 	}
 	if(nrvalues > 1) {
@@ -165,7 +159,7 @@ static void *thread(void *param) {
 	action_sendmail->nrthreads++;
 
 	struct mail_t mail;
-	char *shost = NULL, *suser = NULL, *spassword = NULL;
+	const char *shost = NULL, *suser = NULL, *spassword = NULL;
 	int sport = 0;
 
 	jmessage = json_find_member(arguments, "MESSAGE");

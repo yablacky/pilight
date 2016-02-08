@@ -86,7 +86,7 @@ static void *thread(void *param) {
 	struct JsonNode *jchild = NULL;
 	struct settings_t *bmp180data = MALLOC(sizeof(struct settings_t));
 	int y = 0, interval = 10, nrloops = 0;
-	char *stmp = NULL;
+	const char *stmp = NULL;
 	double itmp = -1, temp_offset = 0, pressure_offset = 0;
 	unsigned char oversampling = 1;
 

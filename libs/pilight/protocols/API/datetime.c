@@ -61,19 +61,19 @@
 
 static unsigned short loop = 1;
 static unsigned short threads = 0;
-static char *format = NULL;
+static char format[32] = { 0 };
 
 static pthread_mutex_t lock;
 
 static void *thread(void *param) {
-	char UTC[] = "UTC";
+	const char UTC[] = "UTC";
 	struct protocol_threads_t *thread = (struct protocol_threads_t *)param;
 	struct JsonNode *json = (struct JsonNode *)thread->param;
 	struct JsonNode *jid = NULL;
 	struct JsonNode *jchild = NULL;
 	struct JsonNode *jchild1 = NULL;
 	struct tm tm;
-	char *tz = NULL;
+	const char *tz = NULL;
 	time_t t;
 	int target_offset = 0, counter = 0, dst = 0, x = 0;
 	double longitude = 0.0, latitude = 0.0;
@@ -81,19 +81,15 @@ static void *thread(void *param) {
 	threads++;
 
 	if((jid = json_find_member(json, "id"))) {
-		jchild = json_first_child(jid);
-		while(jchild) {
-			jchild1 = json_first_child(jchild);
-			while(jchild1) {
+		json_foreach(jchild, jid) {
+			json_foreach(jchild1, jchild) {
 				if(strcmp(jchild1->key, "longitude") == 0) {
 					longitude = jchild1->number_;
 				}
 				if(strcmp(jchild1->key, "latitude") == 0) {
 					latitude = jchild1->number_;
 				}
-				jchild1 = jchild1->next;
 			}
-			jchild = jchild->next;
 		}
 	}
 
@@ -121,9 +117,7 @@ static void *thread(void *param) {
 
 		/* Get UTC time */
 #ifdef _WIN32
-		struct tm *tm1;
-		if((tm1 = gmtime(&t)) != NULL) {
-			memcpy(&tm, tm1, sizeof(struct tm));
+		tm = *gmtime(&t);
 #else
 		if(gmtime_r(&t, &tm) != NULL) {
 #endif
@@ -202,7 +196,6 @@ static void threadGC(void) {
 }
 
 static void gc(void) {
-	FREE(format);
 }
 
 #if !defined(MODULE) && !defined(_WIN32)
@@ -210,7 +203,6 @@ __attribute__((weak))
 #endif
 void datetimeInit(void) {
 
-	format = MALLOC(20);
 	strcpy(format, "HH:mm:ss YYYY-MM-DD");
 
 	protocol_register(&datetime);

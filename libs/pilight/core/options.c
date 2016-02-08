@@ -54,10 +54,7 @@ void options_set_string(struct options_t **opt, int id, const char *val) {
 	struct options_t *temp = *opt;
 	while(temp) {
 		if(temp->id == id && temp->id > 0) {
-			if((temp->string_ = REALLOC(temp->string_, strlen(val)+1)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			temp->string_ = REALLOC_OR_EXIT(temp->string_, strlen(val)+1);
 			temp->vartype = JSON_STRING;
 			strcpy(temp->string_, val);
 			break;
@@ -206,7 +203,7 @@ int options_get_mask(struct options_t **opt, int id, char **out) {
 }
 
 /* Get a certain option id identified by the name */
-int options_get_id(struct options_t **opt, char *name, int *out) {
+int options_get_id(struct options_t **opt, const char *name, int *out) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	struct options_t *temp = *opt;
@@ -253,18 +250,9 @@ int options_parse(struct options_t **opt, int argc, char **argv, int error_check
 	} else {
 		getOptPos++;
 		/* Reserve enough memory to store all variables */
-		if((longarg = REALLOC(longarg, 4)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		if((shortarg = REALLOC(shortarg, 2)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		if((*optarg = REALLOC(*optarg, 4)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		longarg = REALLOC_OR_EXIT(longarg, 4);
+		shortarg = REALLOC_OR_EXIT(shortarg, 2);
+		*optarg = REALLOC_OR_EXIT(*optarg, 4);
 
 		/* The memory to null */
 		memset(*optarg, '\0', 4);
@@ -276,38 +264,26 @@ int options_parse(struct options_t **opt, int argc, char **argv, int error_check
 		if(strchr(argv[getOptPos],'=')) {
 			/* Copy all characters until the equals to sign.
 			   This will probably be the name of the argument */
-			if((longarg = REALLOC(longarg, strcspn(argv[getOptPos],"=")+1)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			longarg = REALLOC_OR_EXIT(longarg, strcspn(argv[getOptPos],"=")+1);
 			memset(longarg, '\0', strcspn(argv[getOptPos],"=")+1);
 			memcpy(longarg, &argv[getOptPos][0], strcspn(argv[getOptPos],"="));
 
 			/* Then copy everything after the equals sign.
 			   This will probably be the value of the argument */
 			size_t i = strlen(&argv[getOptPos][strcspn(argv[getOptPos],"=")+1]);
-			if((*optarg = REALLOC(*optarg, i+1)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			*optarg = REALLOC_OR_EXIT(*optarg, i+1);
 			memset(*optarg, '\0', i+1);
 			memcpy(*optarg, &argv[getOptPos][strcspn(argv[getOptPos],"=")+1], i);
 		} else {
 			/* If the argument does not contain a equals sign.
 			   Store the argument to check later if it's a long argument */
-			if((longarg = REALLOC(longarg, strlen(argv[getOptPos])+1)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			longarg = REALLOC_OR_EXIT(longarg, strlen(argv[getOptPos])+1);
 			strcpy(longarg, argv[getOptPos]);
 		}
 
 		/* A short argument only contains of two characters.
 		   So only store the first two characters */
-		if((shortarg = REALLOC(shortarg, strlen(argv[getOptPos])+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		shortarg = REALLOC_OR_EXIT(shortarg, strlen(argv[getOptPos])+1);
 		memset(shortarg, '\0', 3);
 		strncpy(shortarg, argv[getOptPos], 2);
 
@@ -317,10 +293,7 @@ int options_parse(struct options_t **opt, int argc, char **argv, int error_check
 		   after the current one, store it as the CLI value. However, only
 		   do this if the first character of the argument doesn't contain*/
 		if(strcmp(longarg, shortarg) == 0 && (getOptPos+1)<argc && argv[getOptPos+1][0] != '-') {
-			if((*optarg = REALLOC(*optarg, strlen(argv[getOptPos+1])+1)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			*optarg = REALLOC_OR_EXIT(*optarg, strlen(argv[getOptPos+1])+1);
 			strcpy(*optarg, argv[getOptPos+1]);
 			c = shortarg[1];
 			getOptPos++;
@@ -328,10 +301,7 @@ int options_parse(struct options_t **opt, int argc, char **argv, int error_check
 			/* If the short argument and the long argument are not equal,
 			    then we probably encountered a long argument. */
 			if(longarg[0] == '-' && longarg[1] == '-') {
-				if((gctmp = REALLOC(gctmp, strlen(&longarg[2])+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				gctmp = REALLOC_OR_EXIT(gctmp, strlen(&longarg[2])+1);
 				strcpy(gctmp, &longarg[2]);
 
 				/* Retrieve the short identifier for the long argument */
@@ -446,65 +416,38 @@ void options_add(struct options_t **opt, int id, const char *name, int argtype, 
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	char *ctmp = NULL;
-	char *nname = MALLOC(strlen(name)+1);
 	int sid = 0;
-	if(!nname) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(nname, name);
 	int itmp = 0;
 	if(!(argtype >= 0 && argtype <= 3)) {
 		logprintf(LOG_CRIT, "tying to add an invalid option type");
-		FREE(nname);
 		exit(EXIT_FAILURE);
 	} else if(!(conftype >= 0 && conftype <= NROPTIONTYPES)) {
 		logprintf(LOG_CRIT, "trying to add an option of an invalid type");
-		FREE(nname);
 		exit(EXIT_FAILURE);
 	} else if(!name) {
 		logprintf(LOG_CRIT, "trying to add an option without name");
-		FREE(nname);
 		exit(EXIT_FAILURE);
 	} else if(id != 0 && options_get_name(opt, id, &ctmp) == 0) {
 		logprintf(LOG_CRIT, "duplicate option id: %c", id);
-		FREE(nname);
 		exit(EXIT_FAILURE);
-	} else if(options_get_id(opt, nname, &sid) == 0 &&
+	} else if(options_get_id(opt, name, &sid) == 0 &&
 			((options_get_conftype(opt, sid, &itmp) == 0 && itmp == conftype) ||
 			(options_get_conftype(opt, sid, &itmp) != 0))) {
 		logprintf(LOG_CRIT, "duplicate option name: %s", name);
-		FREE(nname);
 		exit(EXIT_FAILURE);
 	} else {
-		struct options_t *optnode = MALLOC(sizeof(struct options_t));
-		if(!optnode) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		struct options_t *optnode = NULL;
+		CONFIG_ALLOC_NAMED_NODE(optnode, name);
 		optnode->id = id;
-		if((optnode->name = MALLOC(strlen(name)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(optnode->name, name);
+		optnode->comment = NULL;
 		optnode->argtype = argtype;
 		optnode->conftype = conftype;
 		optnode->vartype = vartype;
 		optnode->def = def;
 		optnode->string_ = NULL;
-		if(mask) {
-			if((optnode->mask = MALLOC(strlen(mask)+1)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
-			strcpy(optnode->mask, mask);
-		} else {
-			optnode->mask = NULL;
-		}
+		optnode->mask = STRDUP_OR_EXIT(mask);
 		optnode->next = *opt;
 		*opt = optnode;
-		FREE(nname);
 	}
 }
 
@@ -512,44 +455,16 @@ void options_add(struct options_t **opt, int id, const char *name, int argtype, 
 void options_merge(struct options_t **a, struct options_t **b) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	struct options_t *temp = NULL;
-	temp = *b;
+	struct options_t *temp = *b;
 	while(temp) {
-		struct options_t *optnode = MALLOC(sizeof(struct options_t));
-		if(!optnode) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		struct options_t *optnode = NULL;
+		CONFIG_ALLOC_NAMED_NODE(optnode, temp->name);
 		optnode->id = temp->id;
-		if(temp->name) {
-			if((optnode->name = MALLOC(strlen(temp->name)+1)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
-			memset(optnode->name, '\0', strlen(temp->name)+1);
-			strcpy(optnode->name, temp->name);
-		} else {
-			optnode->name = NULL;
-		}
 		if(temp->string_) {
-			if((optnode->string_ = MALLOC(strlen(temp->string_)+1)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			optnode->string_ = STRDUP_OR_EXIT(temp->string_);
 			optnode->vartype = JSON_STRING;
-			strcpy(optnode->string_, temp->string_);
-		} else {
-			optnode->string_ = NULL;
 		}
-		if(temp->mask) {
-			if((optnode->mask = MALLOC(strlen(temp->mask)+1)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
-			strcpy(optnode->mask, temp->mask);
-		} else {
-			optnode->mask = NULL;
-		}
+		optnode->mask = STRDUP_OR_EXIT(temp->mask);
 		optnode->argtype = temp->argtype;
 		optnode->conftype = temp->conftype;
 		optnode->vartype = temp->vartype;
@@ -566,18 +481,14 @@ void options_delete(struct options_t *options) {
 	struct options_t *tmp;
 	while(options) {
 		tmp = options;
-		if(tmp->mask) {
-			FREE(tmp->mask);
-		}
+		FREE(tmp->mask);
 		if(tmp->vartype == JSON_STRING && tmp->string_) {
 			FREE(tmp->string_);
 		}
 		FREE(tmp->name);
+		FREE(tmp->comment);
 		options = options->next;
 		FREE(tmp);
-	}
-	if(options != NULL) {
-		FREE(options);
 	}
 
 	logprintf(LOG_DEBUG, "freed options struct");

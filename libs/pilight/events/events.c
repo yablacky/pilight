@@ -116,15 +116,8 @@ void event_cache_device(struct rules_t *obj, char *device) {
 		}
 		if(exists == 0) {
 			/* Store all devices that are present in this rule */
-			if((obj->devices = REALLOC(obj->devices, sizeof(char *)*(unsigned int)(obj->nrdevices+1))) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
-			if((obj->devices[obj->nrdevices] = MALLOC(strlen(device)+1)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
-			strcpy(obj->devices[obj->nrdevices], device);
+			obj->devices = REALLOC_OR_EXIT(obj->devices, sizeof(char *)*(unsigned int)(obj->nrdevices+1));
+			obj->devices[obj->nrdevices] = STRDUP_OR_EXIT(device);
 			obj->nrdevices++;
 		}
 	}
@@ -134,35 +127,17 @@ static int event_store_val_ptr(struct rules_t *obj, char *device, char *name, st
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	struct rules_values_t *tmp_values = obj->values;
-	int match = 0;
 	while(tmp_values) {
 		if(strcmp(tmp_values->device, device) == 0 &&
 		   strcmp(tmp_values->name, name) == 0) {
-				match = 1;
 				break;
 		}
 		tmp_values = tmp_values->next;
 	}
 
-	if(match == 0) {
-		if((tmp_values = MALLOC(sizeof(rules_values_t))) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		tmp_values->next = NULL;
-		if((tmp_values->name = MALLOC(strlen(name)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			FREE(tmp_values);
-			exit(EXIT_FAILURE);
-		}
-		strcpy(tmp_values->name, name);
-		if((tmp_values->device = MALLOC(strlen(device)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			FREE(tmp_values->name);
-			FREE(tmp_values);
-			exit(EXIT_FAILURE);
-		}
-		strcpy(tmp_values->device, device);
+	if(tmp_values == NULL) {
+		CONFIG_ALLOC_NAMED_NODE(tmp_values, name);
+		tmp_values->device = STRDUP_OR_EXIT(device);
 		tmp_values->settings = settings;
 		tmp_values->next = obj->values;
 		obj->values = tmp_values;
@@ -180,7 +155,7 @@ static int event_store_val_ptr(struct rules_t *obj, char *device, char *name, st
 	0: Found variable and filled varcont
 	1: Did not find variable and did not fill varcont
 */
-int event_lookup_variable(char *var, struct rules_t *obj, int type, struct varcont_t *varcont, int *rtype, unsigned short validate, enum origin_t origin) {
+int event_lookup_variable(const char *var, struct rules_t *obj, int type, struct varcont_t *varcont, int *rtype, unsigned short validate, enum origin_t origin) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	int cached = 0;
@@ -501,13 +476,8 @@ static int event_parse_hooks(char **rule, struct rules_t *obj, int depth, unsign
 
 	int hooks = 0, res = 0;
 	unsigned long buflen = MEMBUFFER, len = 0, i = 0;
-	char *subrule = MALLOC(buflen);
+	char *subrule = MALLOC_OR_EXIT(buflen);
 	char *tmp = *rule;
-
-	if(subrule == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
 
 	while(tmp[i] != '\0') {
 		if(tmp[i] == '(') {
@@ -521,16 +491,13 @@ static int event_parse_hooks(char **rule, struct rules_t *obj, int depth, unsign
 			subrule[len++] = tmp[i+1];
 			if(buflen <= len) {
 				buflen *= 2;
-				if((subrule = REALLOC(subrule, buflen)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				subrule = REALLOC_OR_EXIT(subrule, buflen);
 				memset(&subrule[len], '\0', buflen-(unsigned long)len);
 			}
 		} else {
 			if(len > 0) {
 				unsigned long z = 1;
-				char *replace = MALLOC(len+3);
+				char *replace = MALLOC_OR_EXIT(len+3);
 
 				subrule[len-1] = '\0';
 
@@ -638,10 +605,7 @@ static int event_parse_function(char **rule, struct rules_t *obj, unsigned short
 		}
 	}
 	while(nested == 1) {
-		if((subfunction = MALLOC(buflen)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		subfunction = MALLOC_OR_EXIT(buflen);
 
 		hooks = 0;
 		i = 0;
@@ -659,7 +623,7 @@ static int event_parse_function(char **rule, struct rules_t *obj, unsigned short
 				subfunction[len++] = tmp[i+1];
 				if(buflen <= len) {
 					buflen *= 2;
-					subfunction = REALLOC(subfunction, buflen);
+					subfunction = REALLOC_OR_EXIT(subfunction, buflen);
 					memset(&subfunction[len], '\0', buflen-(unsigned long)len);
 				}
 			} else {
@@ -669,7 +633,7 @@ static int event_parse_function(char **rule, struct rules_t *obj, unsigned short
 						len--;
 					}
 					unsigned long z = 1;
-					char *replace = MALLOC(len+1);
+					char *replace = MALLOC_OR_EXIT(len+1);
 
 					subfunction[len-1] = '\0';
 					strcpy(replace, subfunction);
@@ -717,18 +681,12 @@ static int event_parse_function(char **rule, struct rules_t *obj, unsigned short
 	fl = (pos2-pos1)+1;
 	nl = (pos3-pos1);
 
-	if((function = MALLOC(fl+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	function = MALLOC_OR_EXIT(fl+1);
 	memset(function, '\0', fl+1);
 	strncpy(function, &tmp[pos1], fl);
 	function[fl] = '\0';
 
-	if((name = MALLOC(nl+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	name = MALLOC_OR_EXIT(nl+1);
 	memset(name, '\0', nl+1);
 	strncpy(name, &tmp[pos1], nl);
 	name[nl] = '\0';
@@ -755,7 +713,7 @@ static int event_parse_function(char **rule, struct rules_t *obj, unsigned short
 	json_append_element(arguments, json_mkstring(&tmp[pos4]));
 	tmp[i-1] = t;
 
-	output = MALLOC(BUFFER_SIZE);
+	output = MALLOC_OR_EXIT(BUFFER_SIZE);
 	memset(output, '\0', BUFFER_SIZE);
 
 	int match = 0;
@@ -803,7 +761,7 @@ static int event_parse_formula(char **rule, struct rules_t *obj, int depth, unsi
 	int element = 0, i = 0, match = 0, error = 0, hasquote = 0, hadquote = 0, rtype1 = 0, rtype2 = 0;
 	char var1quotes[2], var2quotes[2], funcquotes[2];
 	unsigned long len = strlen(tmp), pos = 0, word = 0;
-	char *res = MALLOC(255);
+	char *res = MALLOC_OR_EXIT(255);
 
 	memset(res, '\0', 255);
 	var1quotes[0] = '\0';
@@ -841,7 +799,7 @@ static int event_parse_formula(char **rule, struct rules_t *obj, int depth, unsi
 					if(hadquote == 1) {
 						strcpy(var1quotes, "\"");
 					}
-					var1 = REALLOC(var1, ((pos-word)+1));
+					var1 = REALLOC_OR_EXIT(var1, ((pos-word)+1));
 					memset(var1, '\0', ((pos-word)+1));
 					strncpy(var1, &tmp[word], (pos-word)-hadquote);
 				break;
@@ -849,7 +807,7 @@ static int event_parse_formula(char **rule, struct rules_t *obj, int depth, unsi
 					if(hadquote == 1) {
 						strcpy(funcquotes, "\"");
 					}
-					func = REALLOC(func, ((pos-word)+1));
+					func = REALLOC_OR_EXIT(func, ((pos-word)+1));
 					memset(func, '\0', ((pos-word)+1));
 					strncpy(func, &tmp[word], (pos-word)-hadquote);
 				break;
@@ -857,13 +815,13 @@ static int event_parse_formula(char **rule, struct rules_t *obj, int depth, unsi
 					if(hadquote == 1) {
 						strcpy(var2quotes, "\"");
 					}
-					var2 = REALLOC(var2, ((pos-word)+1));
+					var2 = REALLOC_OR_EXIT(var2, ((pos-word)+1));
 					memset(var2, '\0', ((pos-word)+1));
 					strncpy(var2, &tmp[word], (pos-word)-hadquote);
 
 					unsigned long l = (strlen(var1)+strlen(var2)+strlen(func))+2;
 					/* search parameter, null-terminator, and potential quotes */
-					search = REALLOC(search, (l+1+6));
+					search = REALLOC_OR_EXIT(search, (l+1+6));
 					memset(search, '\0', l+1);
 					l = (unsigned long)sprintf(search, "%s%s%s %s%s%s %s%s%s",
 						var1quotes, var1, var1quotes,
@@ -949,7 +907,7 @@ static int event_parse_formula(char **rule, struct rules_t *obj, int depth, unsi
 						   e.g.: 0 AND 1 AND 1 AND 0
 								     0 AND 1 AND 0
 						*/
-						char *p = MALLOC(strlen(res)+1);
+						char *p = MALLOC_OR_EXIT(strlen(res)+1);
 						strcpy(p, res);
 						unsigned long r = 0;
 						// printf("replace %s with %s in %s\n", search, p, tmp);
@@ -1035,10 +993,7 @@ static int event_parse_action_arguments(char *arguments, struct rules_t *obj, in
 				b++;
 			}
 			if(a < b) {
-				if((tmp = REALLOC(tmp, (b-a)+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				tmp = REALLOC_OR_EXIT(tmp, (b-a)+1);
 				strncpy(tmp, &arguments[a], (b-a));
 				tmp[(b-a)] = '\0';
 
@@ -1059,10 +1014,7 @@ static int event_parse_action_arguments(char *arguments, struct rules_t *obj, in
 					 */
 					nlen = (len-(b-a))+vallen;
 					if(len < nlen) {
-						if((arguments = REALLOC(arguments, nlen)) == NULL) {
-							fprintf(stderr, "out of memory\n");
-							exit(EXIT_FAILURE);
-						}
+						arguments = REALLOC_OR_EXIT(arguments, nlen);
 					}
 					memmove(&arguments[a+vallen], &arguments[b], nlen-(a+vallen));
 
@@ -1141,21 +1093,16 @@ static int event_parse_action(char *action, struct rules_t *obj, int validate) {
 	pos = 0;
 	len = 0;
 	for(x=0;x<nractions;x++) {
-		match = 0;
 		node = obj->actions;
 		while(node) {
 			if(node->nr == x) {
-				match = 1;
 				break;
 			}
 			node = node->next;
 		}
 
-		if(match == 0) {
-			if((node = MALLOC(sizeof(struct rules_actions_t))) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+		if(node == NULL) {
+			CONFIG_ALLOC_UNNAMED_NODE(node);
 			node->nr = x;
 			node->rule = obj;
 			node->arguments = NULL;
@@ -1168,26 +1115,21 @@ static int event_parse_action(char *action, struct rules_t *obj, int validate) {
 		/* First extract the action name */
 		if((p = strstr(&tmp[offset], " ")) != NULL) {
 			pos1 = p-tmp;
-			if((func = REALLOC(func, (pos1-offset)+1)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			func = REALLOC_OR_EXIT(func, (pos1-offset)+1);
 			strncpy(func, &tmp[offset], (pos1-offset));
 			func[(pos1-offset)] = '\0';
 		}
 
 		pos1 = pos;
-		match = 0;
 		node->action = event_actions;
 		while(node->action) {
 			if(strcmp(node->action->name, func) == 0) {
-				match = 1;
 				break;
 			}
 			node->action = node->action->next;
 		}
 
-		if(match == 0) {
+		if(node->action == NULL) {
 			logprintf(LOG_ERR, "action \"%s\" doesn't exists", func);
 			error = 1;
 			break;
@@ -1201,20 +1143,13 @@ static int event_parse_action(char *action, struct rules_t *obj, int validate) {
 			while(pos < len) {
 				opt = node->action->options;
 				while(opt) {
-					if((search = REALLOC(search, strlen(opt->name)+3)) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
-					memset(search, '\0', strlen(opt->name)+3);
+					search = REALLOC_OR_EXIT(search, strlen(opt->name)+3);
 					sprintf(search, " %s ", opt->name);
 
 					if(strncmp(&tmp[pos], search, strlen(search)) == 0) {
 						pos++;
 						if(pos1 < pos) {
-							if((value = REALLOC(value, (pos-pos1)+1)) == NULL) {
-								fprintf(stderr, "out of memory\n");
-								exit(EXIT_FAILURE);
-							}
+							value = REALLOC_OR_EXIT(value, (pos-pos1)+1);
 							strncpy(value, &tmp[pos1], (pos-pos1));
 							value[(pos-pos1)-1] = '\0';
 
@@ -1261,11 +1196,7 @@ static int event_parse_action(char *action, struct rules_t *obj, int validate) {
 			if(search != NULL) {
 				FREE(search);
 			}
-			if((value = REALLOC(value, (pos-pos1)+1)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
-
+			value = REALLOC_OR_EXIT(value, (pos-pos1)+1);
 			strncpy(value, &tmp[pos1], (pos-pos1));
 			value[(pos-pos1)] = '\0';
 			if(name != NULL && strlen(name) > 0 && strlen(value) > 0) {
@@ -1303,11 +1234,9 @@ static int event_parse_action(char *action, struct rules_t *obj, int validate) {
 					node->parsedargs = NULL;
 				}
 				node->parsedargs = json_decode(output);
-				jchild = json_first_child(node->parsedargs);
-				while(jchild) {
+				json_foreach(jchild, node->parsedargs) {
 					if((jvalue = json_find_member(jchild, "value")) != NULL) {
-						jchild1 = json_first_child(jvalue);
-						while(jchild1) {
+						json_foreach(jchild1, jvalue) {
 							if(jchild1->tag == JSON_STRING) {
 								if((error = event_parse_action_arguments(jchild1->string_, obj, validate)) == 0) {
 									if(isNumeric(jchild1->string_) == 0) {
@@ -1322,10 +1251,8 @@ static int event_parse_action(char *action, struct rules_t *obj, int validate) {
 									break;
 								}
 							}
-							jchild1 = jchild1->next;
 						}
 					}
-					jchild = jchild->next;
 				}
 				if(error == 0) {
 					struct options_t *opt = node->action->options;
@@ -1341,8 +1268,7 @@ static int event_parse_action(char *action, struct rules_t *obj, int validate) {
 						} else {
 							if((jvalue = json_find_member(joption, "value")) != NULL) {
 								if(jvalue->tag == JSON_ARRAY) {
-									jchild = json_first_child(jvalue);
-									while(jchild) {
+									json_foreach(jchild, jvalue) {
 										if(opt->vartype != (JSON_NUMBER | JSON_STRING)) {
 											if(jchild->tag != JSON_NUMBER && opt->vartype == JSON_NUMBER) {
 												logprintf(LOG_ERR, "action \"%s\" option \"%s\" only accepts numbers", node->action->name, opt->name);
@@ -1355,7 +1281,6 @@ static int event_parse_action(char *action, struct rules_t *obj, int validate) {
 												break;
 											}
 										}
-										jchild = jchild->next;
 									}
 								}
 							}
@@ -1363,15 +1288,12 @@ static int event_parse_action(char *action, struct rules_t *obj, int validate) {
 						opt = opt->next;
 					}
 					if(error == 0) {
-						jchild = json_first_child(node->parsedargs);
-						while(jchild) {
-							jchild1 = json_first_child(node->parsedargs);
+						json_foreach(jchild, node->parsedargs) {
 							match = 0;
-							while(jchild1) {
+							json_foreach(jchild1, node->parsedargs) {
 								if(strcmp(jchild->key, jchild1->key) == 0) {
 									match++;
 								}
-								jchild1 = jchild1->next;
 							}
 							if(match > 1) {
 								logprintf(LOG_ERR, "action \"%s\" has duplicate \"%s\" arguments", node->action->name, jchild->key);
@@ -1392,7 +1314,6 @@ static int event_parse_action(char *action, struct rules_t *obj, int validate) {
 								error = 1;
 								break;
 							}
-							jchild = jchild->next;
 						}
 					}
 				}
@@ -1414,11 +1335,9 @@ static int event_parse_action(char *action, struct rules_t *obj, int validate) {
 				node->parsedargs = NULL;
 			}
 			node->parsedargs = json_decode(output);
-			jchild = json_first_child(node->parsedargs);
-			while(jchild) {
+			json_foreach(jchild, node->parsedargs) {
 				if((jvalue = json_find_member(jchild, "value")) != NULL) {
-					jchild1 = json_first_child(jvalue);
-					while(jchild1) {
+					json_foreach(jchild1, jvalue) {
 						if(jchild1->tag == JSON_STRING) {
 							if((error = event_parse_action_arguments(jchild1->string_, obj, validate)) == 0) {
 								if(isNumeric(jchild1->string_) == 0) {
@@ -1433,10 +1352,8 @@ static int event_parse_action(char *action, struct rules_t *obj, int validate) {
 								break;
 							}
 						}
-						jchild1 = jchild1->next;
 					}
 				}
-				jchild = jchild->next;
 			}
 
 			if(error == 0) {
@@ -1493,11 +1410,7 @@ int event_parse_condition(char **rule, struct rules_t *obj, int depth, unsigned 
 		pos = (size_t)(or-tmp);
 	}
 
-	if((subrule = MALLOC(pos+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-
+	subrule = MALLOC_OR_EXIT(pos+1);
 	strncpy(subrule, tmp, pos);
 	subrule[pos-1] = '\0';
 	// for(i=0;i<pos;i++) {
@@ -1537,13 +1450,13 @@ int event_parse_condition(char **rule, struct rules_t *obj, int depth, unsigned 
 int event_parse_rule(char *rule, struct rules_t *obj, int depth, unsigned short validate) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
+	/* Replace all dual+ spaces with a single space */
+	rule = uniq_space(rule);
 	char *tloc = 0, *condition = NULL, *action = NULL;
 	unsigned int tpos = 0, rlen = strlen(rule), tlen = 0;
 	int x = 0, nrhooks = 0, error = 0, i = 0;
 	int type_or = 0, type_and = 0;
 
-	/* Replace all dual+ spaces with a single space */
-	rule = uniq_space(rule);
 	while(x < rlen) {
 		// if(strncmp(&rule[x], "  ", 2) == 0) {
 			// logprintf(LOG_ERR, "rule #%d invalid: multiple spaces in a row", nr);
@@ -1559,7 +1472,9 @@ int event_parse_rule(char *rule, struct rules_t *obj, int depth, unsigned short 
 		x++;
 	}
 
-	if(depth == 0) {
+	if(depth > 0) {
+		condition = rule;
+	} else { // depth == 0
 		if(strncmp(&rule[0], "IF ", 3) != 0) {
 			logprintf(LOG_ERR, "rule #%d invalid: missing IF", obj->nr);
 			error = -1;
@@ -1574,22 +1489,14 @@ int event_parse_rule(char *rule, struct rules_t *obj, int depth, unsigned short 
 
 		tpos = (size_t)(tloc-rule);
 
-		if((action = MALLOC((rlen-tpos)+6+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-
+		action = MALLOC_OR_EXIT((rlen-tpos)+6+1);
 		strncpy(action, &rule[tpos+6], rlen-tpos);
 		action[rlen-tpos+6] = '\0';
 		tlen = rlen-tpos+6;
 
 		/* Extract the command part between the IF and THEN
 		   ("IF " length = 3) */
-		if((condition = MALLOC(rlen-tlen+3+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-
+		condition = MALLOC_OR_EXIT(rlen-tlen+3+1);
 		strncpy(condition, &rule[3], rlen-tlen+3);
 		condition[rlen-tlen+3] = '\0';
 	}
@@ -1602,10 +1509,6 @@ int event_parse_rule(char *rule, struct rules_t *obj, int depth, unsigned short 
 		logprintf(LOG_ERR, "rule #%d invalid: missing one or more (", obj->nr);
 		error = -1;
 		goto close;
-	}
-
-	if(depth > 0) {
-		condition = rule;
 	}
 
 	int pass = 0, ltype = NONE, skip = 0;
@@ -1729,7 +1632,8 @@ void *events_loop(void *param) {
 	struct devices_t *dev = NULL;
 	struct JsonNode *jdevices = NULL, *jchilds = NULL;
 	struct rules_t *tmp_rules = NULL;
-	char *str = NULL, *origin = NULL, *protocol = NULL;
+	char *str = NULL;
+	const char *origin = NULL, *protocol = NULL;
 	unsigned short match = 0;
 	unsigned int i = 0;
 
@@ -1753,11 +1657,7 @@ void *events_loop(void *param) {
 					}
 
 					match = 0;
-					if((str = MALLOC(strlen(tmp_rules->rule)+1)) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
-					strcpy(str, tmp_rules->rule);
+					str = STRDUP_OR_EXIT(tmp_rules->rule);
 					if(json_find_string(eventsqueue->jconfig, "origin", &origin) == 0 && 
 					   json_find_string(eventsqueue->jconfig, "protocol", &protocol) == 0) {
 						if(strcmp(origin, "sender") == 0 || strcmp(origin, "receiver") == 0) {
@@ -1771,8 +1671,7 @@ void *events_loop(void *param) {
 					}
 					/* Only run those events that affect the updates devices */
 					if(jdevices != NULL && match == 0) {
-						jchilds = json_first_child(jdevices);
-						while(jchilds) {
+						json_foreach(jchilds, jdevices) {
 							for(i=0;i<tmp_rules->nrdevices;i++) {
 								if(jchilds->tag == JSON_STRING &&
 								   strcmp(jchilds->string_, tmp_rules->devices[i]) == 0) {
@@ -1790,7 +1689,6 @@ void *events_loop(void *param) {
 									break;
 								}
 							}
-							jchilds = jchilds->next;
 						}
 					}
 					if(match == 1 && tmp_rules->status == 0) {
@@ -1841,11 +1739,7 @@ static void events_queue(char *message) {
 		pthread_mutex_lock(&events_lock);
 	}
 	if(eventsqueue_number < 1024) {
-		struct eventsqueue_t *enode = MALLOC(sizeof(eventsqueue_t));
-		if(enode == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		struct eventsqueue_t *enode = MALLOC_OR_EXIT(sizeof(eventsqueue_t));
 		enode->jconfig = json_decode(message);
 
 		if(eventsqueue_number == 0) {

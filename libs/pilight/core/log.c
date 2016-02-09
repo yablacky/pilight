@@ -149,7 +149,7 @@ int log_gc(void) {
 
 void logprintf(int prio, const char *format_str, ...) {
 	struct timeval tv;
-	struct tm tm;
+	struct tm tm, *ptm;
 	va_list ap, apcpy;
 	char fmt[64], buf[64], *line = MALLOC(128);
 	int save_errno = -1, pos = 0, bytes = 0;
@@ -168,14 +168,13 @@ void logprintf(int prio, const char *format_str, ...) {
 	if(loglevel >= prio) {
 		gettimeofday(&tv, NULL);
 #ifdef _WIN32
-		struct tm *tm1;
-		if((tm1 = gmtime(&tv.tv_sec)) != 0) {
-			memcpy(&tm, tm1, sizeof(struct tm));
+		ptm = gmtime(&tv.tv_sec);
 #else
-		if((gmtime_r(&tv.tv_sec, &tm)) != 0) {
+		ptm = gmtime_r(&tv.tv_sec, &tm);
 #endif
-			strftime(fmt, sizeof(fmt), "%b %d %H:%M:%S", &tm);
-			snprintf(buf, sizeof(buf), "%s:%03u", fmt, (unsigned int)tv.tv_usec);
+		if (ptm) {
+			strftime(fmt, sizeof(fmt), "%b %d %H:%M:%S", ptm);
+			snprintf(buf, sizeof(buf), "%s:%06u", fmt, (unsigned int)tv.tv_usec);
 		}
 		pos += sprintf(line, "[%22.22s] %s: ", buf, progname);
 

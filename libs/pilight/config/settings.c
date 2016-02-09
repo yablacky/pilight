@@ -299,21 +299,23 @@ static int settings_parse(JsonNode *root) {
 			}
 #ifdef WEBSERVER
 
-#ifdef WEBSERVER_HTTPS
 		} else if(strcmp(jsettings->key, "webserver-https-port") == 0) {
 			if(jsettings->tag != JSON_NUMBER) {
-				logprintf(LOG_ERR, "config setting \"%s\" must contain a number larget than 0", jsettings->key);
+				logprintf(LOG_ERR, "config setting \"%s\" must contain a number", jsettings->key);
 				have_error = 1;
 				goto clear;
-			} else if(jsettings->number_ < 0) {
-				logprintf(LOG_ERR, "config setting \"%s\" must contain a number larger than 0", jsettings->key);
+			} else if(jsettings->number_ <= 0 || (double)(int)jsettings->number_ != jsettings->number_) {
+				logprintf(LOG_ERR, "config setting \"%s\" must contain an integer number larger than 0", jsettings->key);
 				have_error = 1;
 				goto clear;
 			} else {
+#ifdef WEBSERVER_HTTPS
 				web_ssl_port = (int)jsettings->number_;
 				settings_add_number(jsettings->key, (int)jsettings->number_);
-			}
+#else
+				logprintf(LOG_WARNING, "config setting \"%s\" not supported. Not build with WEBSERVER_HTTPS defined.", jsettings->key);
 #endif
+			}
 		} else if(strcmp(jsettings->key, "webserver-http-port") == 0) {
 			if(jsettings->tag != JSON_NUMBER) {
 				logprintf(LOG_ERR, "config setting \"%s\" must contain a number larget than 0", jsettings->key);

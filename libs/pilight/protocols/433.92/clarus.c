@@ -47,7 +47,7 @@ static int validate(void) {
 	return -1;
 }
 
-static void createMessage(char *id, int unit, int state) {
+static void createMessage(const char *id, int unit, int state) {
 	clarus_switch->message = json_mkobject();
 	json_append_member(clarus_switch->message, "id", json_mkstring(id));
 	json_append_member(clarus_switch->message, "unit", json_mknumber(unit, 0));
@@ -138,7 +138,7 @@ static void createUnit(int unit) {
 	}
 }
 
-static void createId(char *id) {
+static void createId(const char *id) {
 	int l = ((int)(id[0]))-65;
 	int y = atoi(&id[1]);
 	int binary[255];
@@ -171,17 +171,17 @@ static void createFooter(void) {
 	clarus_switch->raw[49]=(PULSE_DIV*AVG_PULSE_LENGTH);
 }
 
-static int createCode(struct JsonNode *code) {
-	char id[3] = {'\0'};
+static int createCode(const struct JsonNode *code) {
+	const char *id = NULL;
+	char number[32] = { 0 };
 	int unit = -1;
 	int state = -1;
 	double itmp;
-	char *stmp;
 
-	strcpy(id, "-1");
-
-	if(json_find_string(code, "id", &stmp) == 0)
-		strcpy(id, stmp);
+	if(json_find_string(code, "id", &id) != 0 && json_find_number(code, "id", &itmp) == 0) {
+		sprintf(number, "%g", itmp);
+		id = number;
+	}
 	if(json_find_number(code, "off", &itmp) == 0)
 		state=0;
 	else if(json_find_number(code, "on", &itmp) == 0)
@@ -189,8 +189,8 @@ static int createCode(struct JsonNode *code) {
 	if(json_find_number(code, "unit", &itmp) == 0)
 		unit = (int)round(itmp);
 
-	if(strcmp(id, "-1") == 0 || unit == -1 || state == -1) {
-		logprintf(LOG_ERR, "clarus_switch: insufficient number of arguments");
+	if(id == NULL || unit == -1 || state == -1) {
+		logprintf(LOG_ERR, "clarus_switch: insufficient number of arguments (found id=%s,unit=%d,state=%d)", id?id:"(no)", unit, state);
 		return EXIT_FAILURE;
 	} else if((int)(id[0]) < 65 || (int)(id[0]) > 70) {
 		logprintf(LOG_ERR, "clarus_switch: invalid id range");

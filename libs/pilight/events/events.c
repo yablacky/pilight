@@ -312,7 +312,7 @@ int event_lookup_variable(const char *var, struct rules_t *obj, int type, struct
 					}
 				}
 
-				struct JsonNode *jmessage = NULL, *jnode = NULL;
+				const struct JsonNode *jmessage = NULL, *jnode = NULL;
 				if(obj->jtrigger != NULL) {
 					if(((jnode = json_find_member(obj->jtrigger, name)) != NULL) || 
 					   ((jmessage = json_find_member(obj->jtrigger, "message")) != NULL && 
@@ -1053,9 +1053,9 @@ static int event_parse_action_arguments(char *arguments, struct rules_t *obj, in
 
 static int event_parse_action(char *action, struct rules_t *obj, int validate) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
-	struct JsonNode *jchild = NULL;
-	struct JsonNode *jchild1 = NULL;
-	struct JsonNode *jvalue = NULL;
+	const const struct JsonNode *jchild = NULL;
+	const const struct JsonNode *jchild1 = NULL;
+	const const struct JsonNode *jvalue = NULL;
 	struct options_t *opt = NULL;
 	struct event_actions_t *tmp_actions = NULL;
 	struct rules_actions_t *node = NULL;
@@ -1239,14 +1239,7 @@ static int event_parse_action(char *action, struct rules_t *obj, int validate) {
 						json_foreach(jchild1, jvalue) {
 							if(jchild1->tag == JSON_STRING) {
 								if((error = event_parse_action_arguments(jchild1->string_, obj, validate)) == 0) {
-									if(isNumeric(jchild1->string_) == 0) {
-										int dec = nrDecimals(jchild1->string_);
-										int nr = atof(jchild1->string_);
-										json_free(jchild1->string_);
-										jchild1->tag = JSON_NUMBER;
-										jchild1->number_ = nr;
-										jchild1->decimals_ = dec;
-									}
+									json_convert_type_force(jchild1, JSON_NUMBER);
 								} else {
 									break;
 								}
@@ -1256,8 +1249,8 @@ static int event_parse_action(char *action, struct rules_t *obj, int validate) {
 				}
 				if(error == 0) {
 					struct options_t *opt = node->action->options;
-					struct JsonNode *joption = NULL;
-					struct JsonNode *jchild = NULL;
+					const struct JsonNode *joption = NULL;
+					const struct JsonNode *jchild = NULL;
 					while(opt) {
 						if((joption = json_find_member(node->parsedargs, opt->name)) == NULL) {
 							if(opt->conftype == DEVICES_VALUE && opt->argtype == OPTION_HAS_VALUE) {
@@ -1340,14 +1333,7 @@ static int event_parse_action(char *action, struct rules_t *obj, int validate) {
 					json_foreach(jchild1, jvalue) {
 						if(jchild1->tag == JSON_STRING) {
 							if((error = event_parse_action_arguments(jchild1->string_, obj, validate)) == 0) {
-								if(isNumeric(jchild1->string_) == 0) {
-									int dec = nrDecimals(jchild1->string_);
-									int nr = atof(jchild1->string_);
-									json_free(jchild1->string_);
-									jchild1->tag = JSON_NUMBER;
-									jchild1->number_ = nr;
-									jchild1->decimals_ = dec;
-								}
+								json_convert_type_force(jchild1, JSON_NUMBER);
 							} else {
 								break;
 							}
@@ -1630,7 +1616,7 @@ void *events_loop(void *param) {
 	}
 
 	struct devices_t *dev = NULL;
-	struct JsonNode *jdevices = NULL, *jchilds = NULL;
+	const struct JsonNode *jdevices = NULL, *jchilds = NULL;
 	struct rules_t *tmp_rules = NULL;
 	char *str = NULL;
 	const char *origin = NULL, *protocol = NULL;

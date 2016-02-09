@@ -126,7 +126,7 @@ int settings_find_string(const char *name, const char **out) {
 	return EXIT_FAILURE;
 }
 
-static int settings_parse(JsonNode *root) {
+static int settings_parse(const JsonNode *root) {
 	int have_error = 0;
 
 #ifdef WEBSERVER
@@ -144,7 +144,7 @@ static int settings_parse(JsonNode *root) {
 	int reti;
 #endif
 
-	JsonNode *jsettings = NULL;
+	const JsonNode *jsettings = NULL;
 	json_foreach_and_all(jsettings, root) {
 		if(json_is_comment(jsettings)) {
 			settings_add_comment(jsettings->string_);
@@ -336,7 +336,7 @@ static int settings_parse(JsonNode *root) {
 				settings_add_number(jsettings->key, (int)jsettings->number_);
 			}
 		} else if(strcmp(jsettings->key, "webserver-authentication") == 0 && jsettings->tag == JSON_ARRAY) {
-			JsonNode *jtmp = json_first_child(jsettings);
+			const JsonNode *jtmp = json_first_child(jsettings);
 			unsigned short i = 0;
 			while(jtmp) {
 				i++;
@@ -363,7 +363,7 @@ static int settings_parse(JsonNode *root) {
 			}
 #endif // WEBSERVER
 		} else if(strcmp(jsettings->key, "ntp-servers") == 0 && jsettings->tag == JSON_ARRAY) {
-			JsonNode *jtmp = json_first_child(jsettings);
+			const JsonNode *jtmp = json_first_child(jsettings);
 			unsigned short i = 0;
 			char name[25];
 			while(jtmp) {

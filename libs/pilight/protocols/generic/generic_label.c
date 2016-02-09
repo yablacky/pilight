@@ -37,7 +37,7 @@ static void createMessage(int id, const char *label, const char *color) {
 	json_append_member(generic_label->message, "color", json_mkstring(color));
 }
 
-static int createCode(JsonNode *code) {
+static int createCode(const JsonNode *code) {
 	int id = -1;
 	const char *label = NULL;
 	const char *color = "black";

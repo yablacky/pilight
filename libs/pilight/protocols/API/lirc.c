@@ -218,7 +218,7 @@ static void *thread(void *param) {
 	return (void *)NULL;
 }
 
-struct threadqueue_t *initDev(JsonNode *jdevice) {
+struct threadqueue_t *initDev(const JsonNode *jdevice) {
 	loop = 1;
 
 	if(initialized == 0) {

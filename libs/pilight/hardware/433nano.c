@@ -432,7 +432,7 @@ static int nano433Receive(struct rawcode_t *r) {
   return -1;
 }
 
-static unsigned short nano433Settings(JsonNode *json) {
+static unsigned short nano433Settings(const JsonNode *json) {
 	if(strcmp(json->key, "comport") == 0) {
 		if(json->tag == JSON_STRING) {
 			strcpy(com, json->string_);

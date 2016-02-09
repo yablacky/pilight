@@ -165,14 +165,10 @@ static int lirc433Receive(void) {
 	}
 }
 
-static unsigned short lirc433Settings(JsonNode *json) {
+static unsigned short lirc433Settings(const JsonNode *json) {
 	if(strcmp(json->key, "socket") == 0) {
 		if(json->tag == JSON_STRING) {
-			if((lirc_433_socket = MALLOC(strlen(json->string_)+1)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
-			strcpy(lirc_433_socket, json->string_);
+			lirc_433_socket = STRDUP_OR_EXIT(json->string_);
 		} else {
 			return EXIT_FAILURE;
 		}

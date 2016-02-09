@@ -30,12 +30,12 @@
 #include "../../core/pilight.h"
 #include "random.h"
 
-static int run(struct rules_t *obj, struct JsonNode *arguments, char **ret, enum origin_t origin) {
+static int run(struct rules_t *obj, const struct JsonNode *arguments, char **ret, enum origin_t origin) {
 	struct timeval t1;
 	char *p = *ret;
 	int argc = 0, r = 0, min = 1, max = 10;
 
-	struct JsonNode *childs = json_first_child(arguments);
+	const struct JsonNode *childs = NULL;
 	json_foreach(childs, arguments) {
 		switch(childs->tag) {
 			case JSON_STRING: r = atoi(childs->string_); break;

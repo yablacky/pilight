@@ -24,7 +24,7 @@
 
 struct event_functions_t {
 	char *name;
-	int (*run)(struct rules_t *obj, struct JsonNode *arguments, char **out, enum origin_t origin);
+	int (*run)(struct rules_t *obj, const struct JsonNode *arguments, char **out, enum origin_t origin);
 
 	struct event_functions_t *next;
 };

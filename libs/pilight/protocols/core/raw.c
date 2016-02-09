@@ -29,7 +29,7 @@
 #include "../../core/gc.h"
 #include "raw.h"
 
-static int createCode(JsonNode *code) {
+static int createCode(const JsonNode *code) {
 	const char *rcode = NULL;
 	double repeats = 10;
 	char **array = NULL;

@@ -252,7 +252,7 @@ static void createFooter(void) {
  *
  * returns : EXIT_SUCCESS or EXIT_FAILURE on obvious occasions
  */
-static int createCode(struct JsonNode *code) {
+static int createCode(const struct JsonNode *code) {
 	unsigned long long systemcode = 0;
 	int unitcode = -1;
 	int group = 0;

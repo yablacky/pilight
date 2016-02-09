@@ -271,7 +271,7 @@ static void initAllCodes(int systemcode, int allcodes[16]) {
 	}
 }
 
-static int createCode(JsonNode *code) {
+static int createCode(const JsonNode *code) {
 	char on1[4] = {10,6,1,5};
 	char on2[4] = {0,3,14,15};
 	char off1[4] = {8,2,11,7};

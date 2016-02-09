@@ -76,33 +76,43 @@ struct JsonNode
 
 /*** Encoding, decoding, and validation ***/
 
-JsonNode   *json_decode         (const char *json);
-char       *json_encode         (const JsonNode *node);
-char       *json_encode_string  (const char *str);
-char       *json_stringify      (const JsonNode *node, const char *space);
-void        json_delete         (JsonNode *node);
+#define JSON_WANT_EMBEDDED_COMMENTS ((JsonNode**) -1)	// special comment value for json_decode_ex()
 
-bool        json_validate       (const char *json, const char **problem);
+JsonNode   *json_decode          (const char *json);
+JsonNode   *json_decode_ex       (const char *json, const char **problem,
+					JsonNode **comments); // delivers problem and comments.
+int         json_get_line_number (const char *json, const char *problem_from_json_decode_ex,
+					int *position_in_line);
+
+char       *json_encode          (const JsonNode *node);
+char       *json_encode_string   (const char *str);
+char       *json_stringify       (const JsonNode *node, const char *space);
+char       *json_stringify_ex    (const JsonNode *node, const char *space,
+					const JsonNode *comments_from_json_decode_ex);
+
+bool        json_validate        (const char *json, const char **problem);
 
 /*** Lookup and traversal ***/
 
-#define json_is_comment(node)	((node)->tag == JSON_LINE_COMMENT || \
-				 (node)->tag == JSON_BLOCK_COMMENT)
+#define json_is_container(node) ((node)->tag == JSON_ARRAY || (node)->tag == JSON_OBJECT)
+#define json_is_comment(node)	((node)->tag == JSON_LINE_COMMENT || (node)->tag == JSON_BLOCK_COMMENT)
 
-JsonNode   *json_find_element   (JsonNode *array, int index);
-JsonNode   *json_find_member    (JsonNode *object, const char *key);
+const JsonNode	*json_find_element   (const JsonNode *array_or_object, int index);
+const JsonNode	*json_find_member    (const JsonNode *object_or_array, const char *key);
+const JsonNode	*json_first_child    (const JsonNode *node);
 
-JsonNode   *json_first_child    (const JsonNode *node);
+bool json_get_number(const JsonNode *object_or_array, const char *name, double *out);
+bool json_get_string(const JsonNode *object_or_array, const char *name, const char **out);
 
-#define json_foreach(i, object_or_array)            \
-	for ((i) = json_first_child(object_or_array);   \
-		 (i) != NULL;                               \
-		 (i) = (i)->next) if (!json_is_comment(i))
+#define json_foreach_and_all(i, object_or_array)        \
+        for ((i) = json_first_child(object_or_array);   \
+                 (i) != NULL;                           \
+                 (i) = (i) ? (i)->next                  \
+                   : json_first_child(object_or_array))
 
-#define json_foreach_and_all(i, object_or_array)            \
-	for ((i) = json_first_child(object_or_array);   \
-		 (i) != NULL;                               \
-		 (i) = (i)->next)
+#define json_foreach(i, object_or_array) json_foreach_and_all(i, object_or_array) \
+                                             if (json_is_comment(i)) continue; else
+                                         
 
 /*** Construction and manipulation ***/
 
@@ -113,13 +123,22 @@ JsonNode *json_mknumber(double n, int decimals);
 JsonNode *json_mkarray(void);
 JsonNode *json_mkobject(void);
 
-void json_append_element(JsonNode *array, JsonNode *element);
-void json_prepend_element(JsonNode *array, JsonNode *element);
-void json_append_member(JsonNode *object, const char *key, JsonNode *value);
-void json_prepend_member(JsonNode *object, const char *key, JsonNode *value);
-void json_append_comment(JsonNode *target, const char *comment);
+JsonNode *json_append_element(JsonNode *array, JsonNode *element);	// returns the added element
+JsonNode *json_prepend_element(JsonNode *array, JsonNode *element);	// returns the added element
+JsonNode *json_append_member(JsonNode *object, const char *key, JsonNode *value);	// returns the added element
+JsonNode *json_prepend_member(JsonNode *object, const char *key, JsonNode *value);	// returns the added element
+JsonNode *json_append_comment(JsonNode *target, const char *comment);	// returns the added element
 
-void json_remove_from_parent(JsonNode *node);
+bool json_convert_type_force(const JsonNode *node, JsonTag new_type);
+bool json_convert_type      (      JsonNode *node, JsonTag new_type);
+
+      JsonNode *json_remove_from_parent      (      JsonNode *node);	// returns node->prev.
+const JsonNode *json_remove_from_parent_force(const JsonNode *node);	// returns node->prev.
+
+      JsonNode *json_delete      (      JsonNode *node);	// returns node->prev. Allows to delete in json_foreach().
+const JsonNode *json_delete_force(const JsonNode *node);	// returns node->prev. Allows to delete in json_foreach().
+
+JsonNode *json_strip_comments(JsonNode *root, JsonNode *collector_object); // returns new root.
 
 void json_free(void *a);
 
@@ -132,12 +151,5 @@ void json_free(void *a);
  * to errmsg (unless errmsg is NULL).
  */
 bool json_check(const JsonNode *node, char errmsg[256]);
-
-/*
- * WARNING: The return value of the next _find_ functions is vice-versa:
- * 0 means found, non-null means not found.
- */
-int json_find_number(JsonNode *object, const char *name, double *out);
-int json_find_string(JsonNode *object, const char *name, const char **out);
 
 #endif

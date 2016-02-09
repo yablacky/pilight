@@ -192,7 +192,7 @@ static void createFooter(void) {
 	arctech_dimmer->raw[147]=(PULSE_DIV*AVG_PULSE_LENGTH);
 }
 
-static int checkValues(struct JsonNode *code) {
+static int checkValues(const struct JsonNode *code) {
 	int dimlevel = -1;
 	int max = 15;
 	int min = 0;
@@ -219,7 +219,7 @@ static int checkValues(struct JsonNode *code) {
 	return 0;
 }
 
-static int createCode(struct JsonNode *code) {
+static int createCode(const struct JsonNode *code) {
 	int id = -1;
 	int unit = -1;
 	int state = -1;

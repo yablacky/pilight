@@ -63,18 +63,13 @@ static pthread_mutexattr_t attr;
 
 static void *thread(void *param) {
 	struct protocol_threads_t *node = (struct protocol_threads_t *)param;
-	struct JsonNode *json = (struct JsonNode *)node->param;
-	struct JsonNode *jid = NULL;
-	struct JsonNode *jchild = NULL;
-	struct settings_t *lm75data = MALLOC(sizeof(struct settings_t));
+	const struct JsonNode *json = (struct JsonNode *)node->param;
+	const struct JsonNode *jid = NULL;
+	const struct JsonNode *jchild = NULL;
+	struct settings_t *lm75data = MALLOC_OR_EXIT(sizeof(struct settings_t));
 	int y = 0, interval = 10, nrloops = 0;
 	const char *stmp = NULL;
 	double itmp = -1, temp_offset = 0.0;
-
-	if(lm75data == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
 
 	lm75data->nrid = 0;
 	lm75data->id = NULL;
@@ -86,15 +81,8 @@ static void *thread(void *param) {
 		jchild = json_first_child(jid);
 		while(jchild) {
 			if(json_find_string(jchild, "id", &stmp) == 0) {
-				if((lm75data->id = REALLOC(lm75data->id, (sizeof(char *)*(size_t)(lm75data->nrid+1)))) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				if((lm75data->id[lm75data->nrid] = MALLOC(strlen(stmp)+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				strcpy(lm75data->id[lm75data->nrid], stmp);
+				lm75data->id = REALLOC_OR_EXIT(lm75data->id, (sizeof(char *)*(size_t)(lm75data->nrid+1)));
+				lm75data->id[lm75data->nrid] = STRDUP_OR_EXIT(stmp);
 				lm75data->nrid++;
 			}
 			jchild = jchild->next;
@@ -167,7 +155,7 @@ static void *thread(void *param) {
 	return (void *)NULL;
 }
 
-static struct threadqueue_t *initDev(JsonNode *jdevice) {
+static struct threadqueue_t *initDev(const JsonNode *jdevice) {
 	if(wiringXSupported() == 0 && wiringXSetup() == 0) {
 		loop = 1;
 		char *output = json_stringify(jdevice, NULL);

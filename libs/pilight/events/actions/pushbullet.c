@@ -32,12 +32,9 @@
 #include "pushbullet.h"
 
 static int checkArguments(struct rules_actions_t *obj) {
-	struct JsonNode *jtitle = NULL;
-	struct JsonNode *jbody = NULL;
-	struct JsonNode *jtype = NULL;
-	struct JsonNode *jtoken = NULL;
-	struct JsonNode *jvalues = NULL;
-	struct JsonNode *jchild = NULL;
+	const struct JsonNode *jtitle = NULL,
+		*jbody = NULL, *jtype = NULL, *jtoken = NULL,
+		*jvalues = NULL, *jchild = NULL;
 	int nrvalues = 0;
 
 	jtitle = json_find_member(obj->parsedargs, "TITLE");
@@ -115,19 +112,10 @@ static int checkArguments(struct rules_actions_t *obj) {
 static void *thread(void *param) {
 	struct rules_actions_t *pth = (struct rules_actions_t *)param;
 	// struct rules_t *obj = pth->obj;
-	struct JsonNode *arguments = pth->parsedargs;
-	struct JsonNode *jtitle = NULL;
-	struct JsonNode *jbody = NULL;
-	struct JsonNode *jtype = NULL;
-	struct JsonNode *jtoken = NULL;
-	struct JsonNode *jvalues1 = NULL;
-	struct JsonNode *jvalues2 = NULL;
-	struct JsonNode *jvalues3 = NULL;
-	struct JsonNode *jvalues4 = NULL;
-	struct JsonNode *jval1 = NULL;
-	struct JsonNode *jval2 = NULL;
-	struct JsonNode *jval3 = NULL;
-	struct JsonNode *jval4 = NULL;
+	const struct JsonNode *arguments = pth->parsedargs,
+		*jtitle = NULL, *jbody = NULL, *jtype = NULL, *jtoken = NULL,
+		*jvalues1 = NULL, *jvalues2 = NULL, *jvalues3 = NULL, *jvalues4 = NULL,
+		*jval1 = NULL, *jval2 = NULL, *jval3 = NULL, *jval4 = NULL;
 
 	char url[1024], typebuf[70];
 	char *data = NULL, *tp = typebuf;

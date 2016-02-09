@@ -121,21 +121,14 @@ void UpdateNodeValue(int nodeId, OpenZWave::ValueID const v) {
 	}
 	
 	if(match == 0) {
-		if((tmp = (struct zwave_values_t *)MALLOC(sizeof(struct zwave_values_t))) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		tmp = (struct zwave_values_t *)MALLOC_OR_EXIT(sizeof(struct zwave_values_t));
 		tmp->nodeId = nodeId;
 		tmp->cmdId = v.GetCommandClassId();
 		tmp->valueId = v.GetIndex();
 		tmp->instance = v.GetInstance();
 		tmp->genre = v.GetGenre();
 		tmp->valueType = v.GetType();
-		if((tmp->label = (char *)MALLOC(strlen(label.c_str())+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(tmp->label, label.c_str());
+		tmp->label = STRDUP_OR_EXIT(label.c_str());
 		tmp->next = NULL;
 	}
 
@@ -365,21 +358,21 @@ void OnNotification(OpenZWave::Notification const *_notification, void *_context
 }
 
 static unsigned short zwaveHwInit(void) {
-	char *logfile = NULL;
+	const char *logfile = NULL;
 	int free_log_file = 0;
 	if(settings_find_string("log-file", &logfile) != 0) {
-		if((logfile = (char *)MALLOC(strlen(LOG_FILE)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		free_log_file = 1;
+		logfile = LOG_FILE;
 	}
 
-	char *logpath = NULL;
+	char logpath[strlen(logfile)+1];
+	strcpy(logpath, logfile);
 	atomiclock();
 	/* basename isn't thread safe */
-	char *filename = basename(logfile);
+	char *fn = basename(logpath);
 	atomicunlock();	
+	char filename[strlen(fn)+1];
+	strcpy(filename, fn);
+	logpath[strlen(logfile)-strlen(filename)] = '\0';
 
 	pthread_mutexattr_init(&init_attr);
 	pthread_mutexattr_settype(&init_attr, PTHREAD_MUTEX_RECURSIVE);
@@ -394,23 +387,10 @@ static unsigned short zwaveHwInit(void) {
 	
 	pthread_mutex_lock(&init_lock);
 
-	size_t i = (strlen(logfile)-strlen(filename));
-	if((logpath = (char *)REALLOC(logpath, i+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	memset(logpath, '\0', i+1);
-	strncpy(logpath, logfile, i);	
-
 	OpenZWave::Options::Create(logpath, logpath, "--SaveConfiguration=true");
 	OpenZWave::Options::Get()->AddOptionString("UserPath", logpath, false);
 	OpenZWave::Options::Get()->AddOptionString("logFilename", filename, false);
 
-	FREE(logpath);
-	if(free_log_file == 1) {
-		FREE(logfile);
-	}
-	
 	OpenZWave::Options::Get()->AddOptionBool("logging", true);
 	if(pilight.debuglevel == 1) {
 		OpenZWave::Options::Get()->AddOptionInt("SaveLogLevel", OpenZWave::LogLevel_Info);

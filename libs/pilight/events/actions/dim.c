@@ -46,24 +46,10 @@ static struct units_t {
 };
 
 static int checkArguments(struct rules_actions_t *obj) {
-	struct JsonNode *jdevice = NULL;
-	struct JsonNode *jto = NULL;
-	struct JsonNode *jfor = NULL;
-	struct JsonNode *jafter = NULL;
-	struct JsonNode *jfrom = NULL;
-	struct JsonNode *jin = NULL;
-	struct JsonNode *javalues = NULL;
-	struct JsonNode *jbvalues = NULL;
-	struct JsonNode *jcvalues = NULL;
-	struct JsonNode *jdvalues = NULL;
-	struct JsonNode *jevalues = NULL;
-	struct JsonNode *jfvalues = NULL;
-	struct JsonNode *jachild = NULL;
-	struct JsonNode *jbchild = NULL;
-	struct JsonNode *jcchild = NULL;
-	struct JsonNode *jdchild = NULL;
-	struct JsonNode *jechild = NULL;
-	struct JsonNode *jfchild = NULL;
+	const struct JsonNode *jdevice = NULL,
+		*jto = NULL, *jfor = NULL, *jafter = NULL, *jfrom = NULL, *jin = NULL,
+		*javalues = NULL, *jbvalues = NULL, *jcvalues = NULL, *jdvalues = NULL, *jevalues = NULL, *jfvalues = NULL,
+		*jachild = NULL, *jbchild = NULL, *jcchild = NULL, *jdchild = NULL, *jechild = NULL, *jfchild = NULL;
 	char **array = NULL;
 	double nr1 = 0.0, nr2 = 0.0, nr3 = 0.0, nr4 = 0.0, nr5 = 0.0, nr6 = 0.0;
 	double dimfrom = 0.0, dimto = 0.0;
@@ -429,22 +415,12 @@ static int checkArguments(struct rules_actions_t *obj) {
 
 static void *thread(void *param) {
 	struct event_action_thread_t *pth = (struct event_action_thread_t *)param;
-	struct JsonNode *json = pth->obj->parsedargs;
-	struct JsonNode *jedimlevel = NULL;
-	struct JsonNode *jsdimlevel = NULL;
-	struct JsonNode *jto = NULL;
-	struct JsonNode *jafter = NULL;
-	struct JsonNode *jfor = NULL;
-	struct JsonNode *jfrom = NULL;
-	struct JsonNode *jin = NULL;
-	struct JsonNode *javalues = NULL;
-	struct JsonNode *jcvalues = NULL;
-	struct JsonNode *jdvalues = NULL;
-	struct JsonNode *jevalues = NULL;
-	struct JsonNode *jfvalues = NULL;
-	struct JsonNode *jaseconds = NULL;
-	struct JsonNode *jiseconds = NULL;
-	struct JsonNode *jvalues = NULL;
+	const struct JsonNode *json = pth->obj->parsedargs,
+		*jedimlevel = NULL, *jsdimlevel = NULL,
+		*jto = NULL, *jafter = NULL, *jfor = NULL, *jfrom = NULL, *jin = NULL,
+		*javalues = NULL, *jcvalues = NULL, *jdvalues = NULL, *jevalues = NULL, *jfvalues = NULL,
+		*jaseconds = NULL, *jiseconds = NULL;
+	JsonNode *jvalues = NULL;
 	char *old_state = NULL, **array = NULL;
 	double dimlevel = 0.0, old_dimlevel = 0.0, new_dimlevel = 0.0, cur_dimlevel = 0.0;
 	int seconds_after = 0, seconds_for = 0, seconds_in = 0, has_in = 0, dimdiff = 0;
@@ -792,10 +768,8 @@ static void *thread(void *param) {
 }
 
 static int run(struct rules_actions_t *obj) {
-	struct JsonNode *jdevice = NULL;
-	struct JsonNode *jto = NULL;
-	struct JsonNode *jbvalues = NULL;
-	struct JsonNode *jbchild = NULL;
+	const struct JsonNode *jdevice = NULL,
+		*jto = NULL, *jbvalues = NULL, *jbchild = NULL;
 
 	if((jdevice = json_find_member(obj->parsedargs, "DEVICE")) != NULL &&
 		 (jto = json_find_member(obj->parsedargs, "TO")) != NULL) {

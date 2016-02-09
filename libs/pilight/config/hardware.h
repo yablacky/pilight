@@ -78,10 +78,10 @@ typedef struct hardware_t {
 	};
 	union {
 		int (*sendOOK)(int *code, int rawlen, int repeats);
-		int (*sendAPI)(struct JsonNode *code);
+		int (*sendAPI)(const struct JsonNode *code);
 	};
 	int (*gc)(void);
-	unsigned short (*settings)(JsonNode *json);
+	unsigned short (*settings)(const JsonNode *json);
 	struct hardware_t *next;
 } hardware_t;
 

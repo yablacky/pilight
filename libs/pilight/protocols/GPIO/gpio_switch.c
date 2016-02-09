@@ -61,9 +61,9 @@ static void createMessage(int gpio, int state) {
 
 static void *thread(void *param) {
 	struct protocol_threads_t *node = (struct protocol_threads_t *)param;
-	struct JsonNode *json = (struct JsonNode *)node->param;
-	struct JsonNode *jid = NULL;
-	struct JsonNode *jchild = NULL;
+	const struct JsonNode *json = (struct JsonNode *)node->param;
+	const struct JsonNode *jid = NULL;
+	const struct JsonNode *jchild = NULL;
 	int id = 0, state = 0, nstate = 0;
 	double itmp = 0.0;
 
@@ -97,7 +97,7 @@ static void *thread(void *param) {
 	return (void *)NULL;
 }
 
-static struct threadqueue_t *initDev(JsonNode *jdevice) {
+static struct threadqueue_t *initDev(const JsonNode *jdevice) {
 	if(wiringXSupported() == 0 && wiringXSetup() == 0) {
 		loop = 1;
 		char *output = json_stringify(jdevice, NULL);
@@ -111,17 +111,17 @@ static struct threadqueue_t *initDev(JsonNode *jdevice) {
 	}
 }
 
-static int checkValues(struct JsonNode *jvalues) {
+static int checkValues(const struct JsonNode *jvalues) {
 	double readonly = 0.0;
 
 	if(wiringXSupported() == 0) {
-		struct JsonNode *jid = NULL;
+		const struct JsonNode *jid = NULL;
 		if(wiringXSetup() < 0) {
 			logprintf(LOG_ERR, "unable to setup wiringX") ;
 			return -1;
 		} else if((jid = json_find_member(jvalues, "id"))) {
-			struct JsonNode *jchild = NULL;
-			struct JsonNode *jchild1 = NULL;
+			const struct JsonNode *jchild = NULL;
+			const struct JsonNode *jchild1 = NULL;
 
 			jchild = json_first_child(jid);
 			while(jchild) {

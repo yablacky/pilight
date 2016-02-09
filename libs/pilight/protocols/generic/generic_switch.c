@@ -40,7 +40,7 @@ static void createMessage(int id, int state) {
 	}
 }
 
-static int createCode(JsonNode *code) {
+static int createCode(const JsonNode *code) {
 	int id = -1;
 	int state = -1;
 	double itmp = 0;

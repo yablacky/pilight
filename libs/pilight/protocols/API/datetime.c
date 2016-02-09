@@ -68,10 +68,10 @@ static pthread_mutex_t lock;
 static void *thread(void *param) {
 	const char UTC[] = "UTC";
 	struct protocol_threads_t *thread = (struct protocol_threads_t *)param;
-	struct JsonNode *json = (struct JsonNode *)thread->param;
-	struct JsonNode *jid = NULL;
-	struct JsonNode *jchild = NULL;
-	struct JsonNode *jchild1 = NULL;
+	const struct JsonNode *json = (struct JsonNode *)thread->param;
+	const struct JsonNode *jid = NULL;
+	const struct JsonNode *jchild = NULL;
+	const struct JsonNode *jchild1 = NULL;
 	struct tm tm;
 	const char *tz = NULL;
 	time_t t;
@@ -83,6 +83,7 @@ static void *thread(void *param) {
 	if((jid = json_find_member(json, "id"))) {
 		json_foreach(jchild, jid) {
 			json_foreach(jchild1, jchild) {
+				// FIXME: check for JSON_NUMBER
 				if(strcmp(jchild1->key, "longitude") == 0) {
 					longitude = jchild1->number_;
 				}
@@ -175,7 +176,7 @@ static void *thread(void *param) {
 	return (void *)NULL;
 }
 
-static struct threadqueue_t *initDev(JsonNode *jdevice) {
+static struct threadqueue_t *initDev(const JsonNode *jdevice) {
 	loop = 1;
 	char *output = json_stringify(jdevice, NULL);
 	JsonNode *json = json_decode(output);

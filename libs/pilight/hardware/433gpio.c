@@ -96,7 +96,7 @@ static int gpio433Receive(void) {
 	}
 }
 
-static unsigned short gpio433Settings(JsonNode *json) {
+static unsigned short gpio433Settings(const JsonNode *json) {
 	if(strcmp(json->key, "receiver") == 0) {
 		if(json->tag == JSON_NUMBER) {
 			gpio_433_in = (int)json->number_;

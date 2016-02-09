@@ -27,7 +27,7 @@
 
 typedef struct config_t {
 	char *name;
-	int (*parse)(JsonNode *);
+	int (*parse)(const JsonNode *);
 	int readorder;
 	int writeorder;
 	JsonNode *(*sync)(int level, const char *media);
@@ -37,13 +37,12 @@ typedef struct config_t {
 
 int config_write(int level, const char *media);
 int config_read(void);
-int config_parse(struct JsonNode *root);
+int config_parse(const struct JsonNode *root);
 struct JsonNode *config_print(int level, const char *media);
-int config_set_file(char *settfile);
 void config_register(config_t **listener, const char *name);
 int config_gc(void);
-int config_set_file(char *settfile);
-char *config_get_file(void);
+int config_set_file(const char *settfile);
+const char *config_get_file(void);
 void config_init(void);
 
 /*

@@ -92,49 +92,38 @@ static void parseCode(void) {
 	}
 }
 
-static int checkValues(struct JsonNode *jvalues) {
-	struct JsonNode *jid = NULL;
+static int checkValues(const struct JsonNode *jvalues) {
+	const struct JsonNode *jid = NULL;
 
 	if((jid = json_find_member(jvalues, "id"))) {
 		struct settings_t *snode = NULL;
-		struct JsonNode *jchild = NULL;
-		struct JsonNode *jchild1 = NULL;
+		const struct JsonNode *jchild = NULL;
+		const struct JsonNode *jchild1 = NULL;
 		double id = -1;
-		int match = 0;
 
-		jchild = json_first_child(jid);
-		while(jchild) {
-			jchild1 = json_first_child(jchild);
-			while(jchild1) {
+		json_foreach(jchild, jid) {
+			json_foreach(jchild1, jchild) {
+				// FIXME: check for JSON_NUMBER
 				if(strcmp(jchild1->key, "id") == 0) {
 					id = jchild1->number_;
 				}
-				jchild1 = jchild1->next;
 			}
-			jchild = jchild->next;
 		}
 
 		struct settings_t *tmp = settings;
 		while(tmp) {
 			if(fabs(tmp->id-id) < EPSILON) {
-				match = 1;
 				break;
 			}
 			tmp = tmp->next;
 		}
+		if(tmp == NULL) {
+			CONFIG_ALLOC_UNNAMED_NODE(snode);
 
-		if(match == 0) {
-			if((snode = MALLOC(sizeof(struct settings_t))) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
 			snode->id = id;
-			snode->temp = 0;
-
 			json_find_number(jvalues, "temperature-offset", &snode->temp);
 
-			snode->next = settings;
-			settings = snode;
+			CONFIG_APPEND_NODE_TO_LIST(snode, settings);
 		}
 	}
 	return 0;

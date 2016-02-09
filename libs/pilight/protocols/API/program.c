@@ -73,9 +73,9 @@ static struct settings_t *settings = NULL;
 static void *thread(void *param) {
 	struct protocol_threads_t *pnode = (struct protocol_threads_t *)param;
 	struct JsonNode *json = (struct JsonNode *)pnode->param;
-	struct JsonNode *jid = NULL;
-	struct JsonNode *jchild = NULL;
-	struct JsonNode *jchild1 = NULL;
+	const struct JsonNode *jid = NULL;
+	const struct JsonNode *jchild = NULL;
+	const struct JsonNode *jchild1 = NULL;
 	const char *prog = NULL, *args = NULL, *stopcmd = NULL, *startcmd = NULL;
 
 	int interval = 1, nrloops = 0;
@@ -164,7 +164,7 @@ static void *thread(void *param) {
 	return (void *)NULL;
 }
 
-static struct threadqueue_t *initDev(JsonNode *jdevice) {
+static struct threadqueue_t *initDev(const JsonNode *jdevice) {
 	loop = 1;
 	char *output = json_stringify(jdevice, NULL);
 	JsonNode *json = json_decode(output);
@@ -206,7 +206,7 @@ static void *execute(void *param) {
 	return NULL;
 }
 
-static int createCode(JsonNode *code) {
+static int createCode(const JsonNode *code) {
 	const char *name = NULL;
 	double itmp = -1;
 	int state = -1;

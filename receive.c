@@ -212,10 +212,10 @@ int main(int argc, char **argv) {
 
 		for(i=0;i<n;i++) {
 			struct JsonNode *jcontent = json_decode(array[i]);
-			struct JsonNode *jtype = json_find_member(jcontent, "type");
+			const struct JsonNode *jtype = json_find_member(jcontent, "type");
 			if(jtype != NULL) {
-				json_remove_from_parent(jtype);
-				json_delete(jtype);
+				json_delete_force(jtype);
+				jtype = NULL;
 			}
 			if(filteropt == 1) {
 				int filtered = 0, j = 0;

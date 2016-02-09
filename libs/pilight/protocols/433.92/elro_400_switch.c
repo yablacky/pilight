@@ -142,7 +142,7 @@ static void createFooter(void) {
 	elro_400_switch->raw[49]=(PULSE_DIV*AVG_PULSE_LENGTH);
 }
 
-static int createCode(struct JsonNode *code) {
+static int createCode(const  struct JsonNode *code) {
 	int systemcode = -1;
 	int unitcode = -1;
 	int state = -1;

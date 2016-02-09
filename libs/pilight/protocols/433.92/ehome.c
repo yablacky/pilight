@@ -138,7 +138,7 @@ static void createFooter(void) {
 	ehome->raw[49]=(PULSE_DIV*AVG_PULSE_LENGTH);
 }
 
-static int createCode(struct JsonNode *code) {
+static int createCode(const struct JsonNode *code) {
 	int id = -1;
 	int state = -1;
 	double itmp = 0;

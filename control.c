@@ -200,22 +200,18 @@ int main(int argc, char **argv) {
 			json = json_decode(recvBuff);
 			if(json_find_string(json, "message", &message) == 0) {
 				if(strcmp(message, "config") == 0) {
-					struct JsonNode *jconfig = NULL;
+					const struct JsonNode *jconfig = NULL;
 					if((jconfig = json_find_member(json, "config")) != NULL) {
 						int match = 1;
 						while(match) {
-							struct JsonNode *jchilds = NULL, *pending_delete = NULL;
+							const struct JsonNode *jchilds = NULL;
 							match = 0;
 							json_foreach(jchilds, jconfig) {
-								json_delete(pending_delete);
-								pending_delete = NULL;
 								if(strcmp(jchilds->key, "devices") != 0) {
-									json_remove_from_parent(jchilds);
-									pending_delete = jchilds;
+									jchilds = json_delete_force(jchilds);
 									match = 1;
 								}
 							}
-							json_delete(pending_delete);
 						}
 						config_parse(jconfig);
 						if(devices_get(device, &dev) == 0) {

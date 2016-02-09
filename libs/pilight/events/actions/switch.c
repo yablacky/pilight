@@ -43,18 +43,10 @@ static struct units_t {
 };
 
 static int checkArguments(struct rules_actions_t *obj) {
-	struct JsonNode *jdevice = NULL;
-	struct JsonNode *jto = NULL;
-	struct JsonNode *jfor = NULL;
-	struct JsonNode *jafter = NULL;
-	struct JsonNode *javalues = NULL;
-	struct JsonNode *jbvalues = NULL;
-	struct JsonNode *jcvalues = NULL;
-	struct JsonNode *jdvalues = NULL;
-	struct JsonNode *jachild = NULL;
-	struct JsonNode *jbchild = NULL;
-	struct JsonNode *jcchild = NULL;
-	struct JsonNode *jdchild = NULL;
+	const struct JsonNode *jdevice = NULL,
+		*jto = NULL, *jfor = NULL, *jafter = NULL,
+		*javalues = NULL, *jbvalues = NULL, *jcvalues = NULL, *jdvalues = NULL,
+		*jachild = NULL, *jbchild = NULL, *jcchild = NULL, *jdchild = NULL;
 	char *state = NULL, **array = NULL;
 	double nr1 = 0.0, nr2 = 0.0, nr3 = 0.0, nr4 = 0.0;
 	int nrvalues = 0, l = 0, i = 0, match = 0;
@@ -241,15 +233,10 @@ static int checkArguments(struct rules_actions_t *obj) {
 
 static void *thread(void *param) {
 	struct event_action_thread_t *pth = (struct event_action_thread_t *)param;
-	struct JsonNode *json = pth->obj->parsedargs;
-	struct JsonNode *jto = NULL;
-	struct JsonNode *jafter = NULL;
-	struct JsonNode *jfor = NULL;
-	struct JsonNode *javalues = NULL;
-	struct JsonNode *jcvalues = NULL;
-	struct JsonNode *jdvalues = NULL;
-	struct JsonNode *jstate = NULL;
-	struct JsonNode *jaseconds = NULL;
+	const struct JsonNode *json = pth->obj->parsedargs,
+		*jto = NULL, *jafter = NULL, *jfor = NULL,
+		*javalues = NULL, *jcvalues = NULL, *jdvalues = NULL,
+		*jstate = NULL, *jaseconds = NULL;
 	char *new_state = NULL, *old_state = NULL, *state = NULL, **array = NULL;
 	int seconds_after = 0, type_after = 0;
 	int	l = 0, i = 0, nrunits = (sizeof(units)/sizeof(units[0]));
@@ -412,10 +399,8 @@ static void *thread(void *param) {
 }
 
 static int run(struct rules_actions_t *obj) {
-	struct JsonNode *jdevice = NULL;
-	struct JsonNode *jto = NULL;
-	struct JsonNode *jbvalues = NULL;
-	struct JsonNode *jbchild = NULL;
+	const struct JsonNode *jdevice = NULL,
+		*jto = NULL, *jbvalues = NULL, *jbchild = NULL;
 
 	if((jdevice = json_find_member(obj->parsedargs, "DEVICE")) != NULL &&
 		 (jto = json_find_member(obj->parsedargs, "TO")) != NULL) {

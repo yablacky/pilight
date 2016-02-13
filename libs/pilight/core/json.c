@@ -35,7 +35,7 @@
 	up to end of line. Nested block comments are not allowed.
 
 	In particular, comments are allowed just before array elements
-	and before object members or as only or last comment in an
+	and before object members or as only or as last comment in an
 	container, like this:
 	[ // An array starts here.
 		// The next is an empty object:
@@ -46,6 +46,8 @@
 		** to the next item in the array:
 		*/
 		"this is the commented item",
+
+		[ /* this is an empty array */ ],
 
 		// And now an object with commented members:
 		{
@@ -80,7 +82,7 @@
 	all at once, can be stored separately (it is a json object as
 	well) and can be merged in again when stringifying.  Thereby
 	all matching comments (by structure depth, name and/or index)
-	are merged in, all others are silently ignored.
+	are merged in, all other comments are silently ignored.
 
 	Use json_decode_ex() and json_stringify_ex() if you like to
 	deal with comments. For downward compatibility the previous
@@ -96,7 +98,8 @@
 
   (3)	The JSON parser now returns the position of the error in
 	case the json code could not be parsed. For convenience
-	there is a json_get_line_number() to find the line number.
+	there is a json_get_line_number() to find the line number
+	and position in the line.
 	
 #endif
 

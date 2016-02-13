@@ -210,6 +210,70 @@ int config_write(int level, const char *media) {
 	return ret;
 }
 
+static JsonNode *config_json_strip_debug(const char *filename, JsonNode *root, JsonNode *comments)
+{
+	static const char _bak[] = ".debug.txt";
+	char fn[strlen(filename) + sizeof(_bak)];
+	strcpy(fn, filename); strcat(fn, _bak);
+	if (file_exists(fn) < 0)
+		return root;	// files does NOT yet exist!
+	FILE *fp = fopen(fn, "w");
+	if(!fp)
+		return root;
+	fputs(	"["
+		"\n/*****************************************"
+		"\n * The json code with comments embedded:"
+		"\n *****************************************/"
+		"\n", fp);
+	char *json = json_stringify(root, "\t");
+	fputs(json ? json : "[ /* failed to generate json code ... */ ]", fp);
+	if (json && *json && json[strlen(json)-1] != '\n')
+		fputc('\n', fp);
+	json_free(json);
+
+	root = json_strip_comments(root, comments);
+
+	fputs(	","
+		"\n/*****************************************"
+		"\n * The pure json code with comments stripped off:"
+		"\n *****************************************/"
+		"\n", fp);
+	json = json_stringify(root, "\t");
+	fputs(json ? json : "[ /* failed to generate json code ... */ ]", fp);
+	if (json && *json && json[strlen(json)-1] != '\n')
+		fputc('\n', fp);
+	json_free(json);
+
+	fputs(	","
+		"\n/*****************************************"
+		"\n * The stipped off comments:"
+		"\n *****************************************/"
+		"\n", fp);
+	json = json_stringify(comments, "\t");
+	fputs(json ? json : "[ /* failed to generate json code ... */ ]", fp);
+	if (json && *json && json[strlen(json)-1] != '\n')
+		fputc('\n', fp);
+	json_free(json);
+
+	fputs(	","
+		"\n/*****************************************"
+		"\n * The pure code with comments merged in again:"
+		"\n *****************************************/"
+		"\n", fp);
+	json = json_stringify_ex(root, "\t", comments);
+	fputs(json ? json : "[ /* failed to generate json code ... */ ]", fp);
+	if (json && *json && json[strlen(json)-1] != '\n')
+		fputc('\n', fp);
+
+	fputs(	"]\n", fp);
+	fclose(fp);
+
+	json_free(json);
+	return root;
+}
+
+static int congig_json_debug = 1;
+
 int config_read(void) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
@@ -223,7 +287,7 @@ int config_read(void) {
 	}
 
 	/* Validate JSON and turn into JSON object */
-	root = json_decode_ex(content, &problem, JSON_WANT_EMBEDDED_COMMENTS);  //&comments);
+	root = json_decode_ex(content, &problem, JSON_WANT_EMBEDDED_COMMENTS);
 	if(root == NULL) {
 		int line_number = 0, line_pos = 0;
 		if (problem == NULL)
@@ -243,60 +307,12 @@ int config_read(void) {
 		FREE(content);
 		return EXIT_FAILURE;
 	}
-// LUTZ
-	if (1) {
-		static const char _bak[] = ".bak";
-		char fn[strlen(config_filename) + sizeof(_bak)];
-		strcpy(fn, config_filename); strcat(fn, _bak);
-		FILE *fp = fopen(fn, "w");
-		if(fp) {
-			fputs(	"\n/*****************************************"
-				"\n * The json code with comments embedded:"
-				"\n *****************************************/"
-				"\n", fp);
-			char *json = json_stringify(root, "\t");
-			fputs(json ? json : "/* failed to generate json code ... */", fp);
-			if (json && *json && json[strlen(json)-1] != '\n')
-				fputc('\n', fp);
-			json_free(json);
 
-			root = json_strip_comments(root, comments = json_mkobject());
-
-			fputs(	"\n/*****************************************"
-				"\n * The pure json code with comments stripped off:"
-				"\n *****************************************/"
-				"\n", fp);
-			json = json_stringify(root, "\t");
-			fputs(json ? json : "/* failed to generate json code ... */", fp);
-			if (json && *json && json[strlen(json)-1] != '\n')
-				fputc('\n', fp);
-			json_free(json);
-
-			fputs(	"\n/*****************************************"
-				"\n * The stipped off comments:"
-				"\n *****************************************/"
-				"\n", fp);
-			json = json_stringify(comments, "\t");
-			fputs(json ? json : "/* failed to generate json code ... */", fp);
-			if (json && *json && json[strlen(json)-1] != '\n')
-				fputc('\n', fp);
-
-			fputs(	"\n/*****************************************"
-				"\n * The pure code with comments merged in again:"
-				"\n *****************************************/"
-				"\n", fp);
-			json = json_stringify_ex(root, "\t", comments);
-			fputs(json ? json : "/* failed to generate json code ... */", fp);
-			if (json && *json && json[strlen(json)-1] != '\n')
-				fputc('\n', fp);
-			fclose(fp);
-		}
-		else
-			root = json_strip_comments(root, comments = json_mkobject());
-	}
+	comments = json_mkobject();
+	if (congig_json_debug)
+		root = config_json_strip_debug(config_filename, root, comments);
 	else
-// END LUTZ
-		root = json_strip_comments(root, comments = json_mkobject());
+		root = json_strip_comments(root, comments);
 
 // TODO: implement a "last known good" and restore to this in case a new config does not parse well.
 	if(config_parse(root) != EXIT_SUCCESS) {

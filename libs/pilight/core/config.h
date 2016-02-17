@@ -35,6 +35,7 @@ typedef struct config_t {
 	struct config_t *next;
 } config_t;
 
+int config_set_debug(int mode);	// 0=no debug; returns old mode.
 int config_write(int level, const char *media);
 int config_read(void);
 int config_parse(const struct JsonNode *root);

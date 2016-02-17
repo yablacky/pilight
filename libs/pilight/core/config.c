@@ -92,7 +92,7 @@ static void sort_list(int r) {
 	}
 }
 
-int config_gc(void) {
+void config_clean(void) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	struct config_t *listeners;
@@ -103,6 +103,12 @@ int config_gc(void) {
 		config_root = config_root->next;
 		FREE(listeners);
 	}
+}
+
+int config_gc(void) {
+	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
+
+	config_clean();
 
 	FREE(config_filename);
 	config_filename = NULL;
@@ -215,14 +221,15 @@ static JsonNode *config_json_strip_debug(const char *filename, JsonNode *root, J
 	static const char _bak[] = ".debug.txt";
 	char fn[strlen(filename) + sizeof(_bak)];
 	strcpy(fn, filename); strcat(fn, _bak);
-	if (file_exists(fn) < 0)
-		return root;	// files does NOT yet exist!
 	FILE *fp = fopen(fn, "w");
-	if(!fp)
-		return root;
+	if(!fp) {
+		logprintf(LOG_WARNING, "%s: failed to open '%s' for writing: %s", __FUNCTION__,
+					fn, strerror(errno));
+		return json_strip_comments(root, comments);
+	}
 	fputs(	"["
 		"\n/*****************************************"
-		"\n * The json code with comments embedded:"
+		"\n * The json code parsed with comments embedded:"
 		"\n *****************************************/"
 		"\n", fp);
 	char *json = json_stringify(root, "\t");
@@ -246,7 +253,7 @@ static JsonNode *config_json_strip_debug(const char *filename, JsonNode *root, J
 
 	fputs(	","
 		"\n/*****************************************"
-		"\n * The stipped off comments:"
+		"\n * The stipped off comments itself:"
 		"\n *****************************************/"
 		"\n", fp);
 	json = json_stringify(comments, "\t");
@@ -267,12 +274,18 @@ static JsonNode *config_json_strip_debug(const char *filename, JsonNode *root, J
 
 	fputs(	"]\n", fp);
 	fclose(fp);
+	logprintf(LOG_INFO, "%s: debug info written to '%s'", __FUNCTION__, fn);
 
 	json_free(json);
 	return root;
 }
 
-static int congig_json_debug = 1;
+static int config_json_debug = 1;
+int config_set_debug(int mode) {
+	int old = config_json_debug;
+	config_json_debug = mode;
+	return old;
+}
 
 int config_read(void) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
@@ -309,7 +322,7 @@ int config_read(void) {
 	}
 
 	comments = json_mkobject();
-	if (congig_json_debug)
+	if (config_json_debug)
 		root = config_json_strip_debug(config_filename, root, comments);
 	else
 		root = json_strip_comments(root, comments);

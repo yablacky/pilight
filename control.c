@@ -114,6 +114,7 @@ int main(int argc, char **argv) {
 			break;
 			case 'C':
 				if(config_set_file(optarg) == EXIT_FAILURE) {
+					logprintf(LOG_ERR, "config file '%s' could not be used", optarg);
 					return EXIT_FAILURE;
 				}
 				hasconfarg = 1;

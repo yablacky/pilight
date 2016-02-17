@@ -341,6 +341,7 @@ int main(int argc, char **argv) {
 	options_add(&options, 'H', "help", OPTION_NO_VALUE, 0, JSON_NULL, NULL, NULL);
 	options_add(&options, 'V', "version", OPTION_NO_VALUE, 0, JSON_NULL, NULL, NULL);
 	options_add(&options, 'C', "config", OPTION_HAS_VALUE, 0, JSON_NULL, NULL, NULL);
+	options_add(&options, 'D', "debug", OPTION_NO_VALUE, 0, JSON_NULL, NULL, NULL);
 
 	while (1) {
 		int c;
@@ -355,6 +356,7 @@ int main(int argc, char **argv) {
 				printf("\t -H --help\t\tdisplay usage summary\n");
 				printf("\t -V --version\t\tdisplay version\n");
 				printf("\t -C --config\t\tconfig file\n");
+				printf("\t -D\t\tOutput some debug information.\n");
 				goto clear;
 			break;
 			case 'V':
@@ -365,6 +367,9 @@ int main(int argc, char **argv) {
 				if(config_set_file(args) == EXIT_FAILURE) {
 					goto clear;
 				}
+			break;
+			case 'D':
+				config_set_debug(1);
 			break;
 			default:
 				printf("Usage: %s [options]\n", progname);

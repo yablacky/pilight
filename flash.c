@@ -88,7 +88,7 @@ int main(int argc, char **argv) {
 				goto close;
 			break;
 			case 'C':
-				configtmp = REALLOC(configtmp, strlen(args)+1);
+				configtmp = REALLOC_OR_EXIT(configtmp, strlen(args)+1);
 				strcpy(configtmp, args);
 			break;
 			case 'p':
@@ -96,7 +96,7 @@ int main(int argc, char **argv) {
 			break;
 			case 'f':
 				if(access(args, F_OK) != -1) {
-					fwfile = REALLOC(fwfile, strlen(args)+1);
+					fwfile = REALLOC_OR_EXIT(fwfile, strlen(args)+1);
 					strcpy(fwfile, args);
 				} else {
 					fprintf(stderr, "%s: the firmware file %s does not exists\n", progname, args);
@@ -117,7 +117,6 @@ int main(int argc, char **argv) {
 	protocol_init();
 	config_init();
 	if(config_read() != EXIT_SUCCESS) {
-		FREE(configtmp);
 		goto close;
 	}
 

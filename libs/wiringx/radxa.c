@@ -70,7 +70,7 @@
  *	    an initial offset value the relevant source offset can be reset
  *	    to a new value for autocalculating the following iomux registers.
  */
-static struct rockchip_iomux {
+struct rockchip_iomux {
 	int type;
 	int offset;
 };
@@ -93,7 +93,7 @@ static struct rockchip_iomux {
  * @grange: gpio range
  * @slock: spinlock for the gpio bank
  */
-static struct rockchip_pin_bank {
+struct rockchip_pin_bank {
 	void *reg_base;
 	int irq;
 	int pin_base;
@@ -106,7 +106,7 @@ static struct rockchip_pin_bank {
 	void *reg_mapped_base;
 };
 
-static struct rockchip_pin_ctrl {
+struct rockchip_pin_ctrl {
 	struct rockchip_pin_bank	*pin_banks;
 	unsigned int nr_banks;
 	unsigned int nr_pins;

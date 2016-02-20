@@ -81,19 +81,14 @@ static int readReg16(int fd, int reg) {
 
 static void *thread(void *param) {
 	struct protocol_threads_t *node = (struct protocol_threads_t *) param;
-	struct JsonNode *json = (struct JsonNode *) node->param;
-	struct JsonNode *jid = NULL;
-	struct JsonNode *jchild = NULL;
-	struct settings_t *bmp180data = MALLOC(sizeof(struct settings_t));
+	const struct JsonNode *json = (struct JsonNode *) node->param;
+	const struct JsonNode *jid = NULL;
+	const struct JsonNode *jchild = NULL;
+	struct settings_t *bmp180data = MALLOC_OR_EXIT(sizeof(struct settings_t));
 	int y = 0, interval = 10, nrloops = 0;
 	const char *stmp = NULL;
 	double itmp = -1, temp_offset = 0, pressure_offset = 0;
 	unsigned char oversampling = 1;
-
-	if(bmp180data == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
 
 	bmp180data->nrid = 0;
 	bmp180data->id = NULL;
@@ -113,21 +108,12 @@ static void *thread(void *param) {
 	threads++;
 
 	if((jid = json_find_member(json, "id"))) {
-		jchild = json_first_child(jid);
-		while(jchild) {
+		json_foreach(jchild, jid) {
 			if(json_find_string(jchild, "id", &stmp) == 0) {
-				if((bmp180data->id = REALLOC(bmp180data->id, (sizeof(char *) * (size_t)(bmp180data->nrid + 1)))) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				if((bmp180data->id[bmp180data->nrid] = MALLOC(strlen(stmp) + 1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				strcpy(bmp180data->id[bmp180data->nrid], stmp);
+				bmp180data->id = REALLOC_OR_EXIT(bmp180data->id, (sizeof(char *) * (size_t)(bmp180data->nrid + 1)));
+				bmp180data->id[bmp180data->nrid] = STRDUP_OR_EXIT(stmp);
 				bmp180data->nrid++;
 			}
-			jchild = jchild->next;
 		}
 	}
 
@@ -143,24 +129,18 @@ static void *thread(void *param) {
 	size_t sz = (size_t) (bmp180data->nrid + 1);
 	unsigned long int sizeShort = sizeof(short) * sz;
 	unsigned long int sizeUShort = sizeof(unsigned short) * sz;
-	bmp180data->fd = REALLOC(bmp180data->fd, (sizeof(int) * sz));
-	bmp180data->ac1 = REALLOC(bmp180data->ac1, sizeShort);
-	bmp180data->ac2 = REALLOC(bmp180data->ac2, sizeShort);
-	bmp180data->ac3 = REALLOC(bmp180data->ac3, sizeShort);
-	bmp180data->ac4 = REALLOC(bmp180data->ac4, sizeUShort);
-	bmp180data->ac5 = REALLOC(bmp180data->ac5, sizeUShort);
-	bmp180data->ac6 = REALLOC(bmp180data->ac6, sizeUShort);
-	bmp180data->b1 = REALLOC(bmp180data->b1, sizeShort);
-	bmp180data->b2 = REALLOC(bmp180data->b2, sizeShort);
-	bmp180data->mb = REALLOC(bmp180data->mb, sizeShort);
-	bmp180data->mc = REALLOC(bmp180data->mc, sizeShort);
-	bmp180data->md = REALLOC(bmp180data->md, sizeShort);
-	if(bmp180data->ac1 == NULL || bmp180data->ac2 == NULL || bmp180data->ac3 == NULL || bmp180data->ac4 == NULL ||
-		bmp180data->ac5 == NULL || bmp180data->ac6 == NULL || bmp180data->b1 == NULL || bmp180data->b2 == NULL ||
-		bmp180data->mb == NULL || bmp180data->mc == NULL || bmp180data->md == NULL || bmp180data->fd == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	bmp180data->fd = REALLOC_OR_EXIT(bmp180data->fd, (sizeof(int) * sz));
+	bmp180data->ac1 = REALLOC_OR_EXIT(bmp180data->ac1, sizeShort);
+	bmp180data->ac2 = REALLOC_OR_EXIT(bmp180data->ac2, sizeShort);
+	bmp180data->ac3 = REALLOC_OR_EXIT(bmp180data->ac3, sizeShort);
+	bmp180data->ac4 = REALLOC_OR_EXIT(bmp180data->ac4, sizeUShort);
+	bmp180data->ac5 = REALLOC_OR_EXIT(bmp180data->ac5, sizeUShort);
+	bmp180data->ac6 = REALLOC_OR_EXIT(bmp180data->ac6, sizeUShort);
+	bmp180data->b1 = REALLOC_OR_EXIT(bmp180data->b1, sizeShort);
+	bmp180data->b2 = REALLOC_OR_EXIT(bmp180data->b2, sizeShort);
+	bmp180data->mb = REALLOC_OR_EXIT(bmp180data->mb, sizeShort);
+	bmp180data->mc = REALLOC_OR_EXIT(bmp180data->mc, sizeShort);
+	bmp180data->md = REALLOC_OR_EXIT(bmp180data->md, sizeShort);
 
 	for(y = 0; y < bmp180data->nrid; y++) {
 		// setup i2c
@@ -362,7 +342,7 @@ static void *thread(void *param) {
 	return (void *) NULL;
 }
 
-static struct threadqueue_t *initDev(JsonNode *jdevice) {
+static struct threadqueue_t *initDev(const JsonNode *jdevice) {
 	if(wiringXSupported() == 0 && wiringXSetup() == 0) {
 		loop = 1;
 		char *output = json_stringify(jdevice, NULL);

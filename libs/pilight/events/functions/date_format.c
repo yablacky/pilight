@@ -40,8 +40,8 @@
 #include "../../core/datetime.h"
 #include "date_format.h"
 
-static int run(struct rules_t *obj, struct JsonNode *arguments, char **ret, enum origin_t origin) {
-	struct JsonNode *childs = json_first_child(arguments);
+static int run(struct rules_t *obj, const struct JsonNode *arguments, char **ret, enum origin_t origin) {
+	const struct JsonNode *childs = json_first_child(arguments);
 	struct devices_t *dev = NULL;
 	struct devices_settings_t *opt = NULL;
 	struct protocols_t *protocol = NULL;

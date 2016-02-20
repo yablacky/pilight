@@ -198,7 +198,7 @@ static void createParity(void) {
 	}
 }
 
-static int createCode(JsonNode *code) {
+static int createCode(const JsonNode *code) {
 	double itmp = -1;
 	int unit = -1, id = -1, learn = -1, state = -1, all = 0;
 

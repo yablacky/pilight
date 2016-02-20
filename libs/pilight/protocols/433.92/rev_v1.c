@@ -172,7 +172,7 @@ static void createFooter(void) {
 	rev1_switch->raw[49]=(PULSE_DIV*AVG_PULSE_LENGTH);
 }
 
-static int createCode(struct JsonNode *code) {
+static int createCode(const struct JsonNode *code) {
 	char id[3] = {'\0'};
 	int unit = -1;
 	int state = -1;

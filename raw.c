@@ -196,7 +196,7 @@ int main(int argc, char **argv) {
 				goto close;
 			break;
 			case 'C':
-				configtmp = REALLOC(configtmp, strlen(args)+1);
+				configtmp = REALLOC_OR_EXIT(configtmp, strlen(args)+1);
 				strcpy(configtmp, args);
 			break;
 			default:
@@ -225,17 +225,15 @@ int main(int argc, char **argv) {
 	}
 
 	if(config_set_file(configtmp) == EXIT_FAILURE) {
-		FREE(configtmp);
-		return EXIT_FAILURE;
+		logprintf(LOG_ERR, "config file '%s' could not be used", configtmp);
+		goto close;
 	}
 
 	protocol_init();
 	config_init();
 	if(config_read() != EXIT_SUCCESS) {
-		FREE(configtmp);
 		goto close;
 	}
-	FREE(configtmp);
 
 	/* Start threads library that keeps track of all threads used */
 	threads_start();
@@ -267,5 +265,6 @@ close:
 	if(main_loop == 1) {
 		main_gc();
 	}
+	FREE(configtmp);
 	return (EXIT_FAILURE);
 }

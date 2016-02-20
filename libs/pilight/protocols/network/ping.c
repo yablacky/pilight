@@ -55,9 +55,9 @@ static pthread_mutexattr_t attr;
 
 static void *thread(void *param) {
 	struct protocol_threads_t *node = (struct protocol_threads_t *)param;
-	struct JsonNode *json = (struct JsonNode *)node->param;
-	struct JsonNode *jid = NULL;
-	struct JsonNode *jchild = NULL;
+	const struct JsonNode *json = (struct JsonNode *)node->param;
+	const struct JsonNode *jid = NULL;
+	const struct JsonNode *jchild = NULL;
 	const char *ip = NULL;
 	const char *pstate = NULL;
 	double itmp = 0.0;
@@ -131,7 +131,7 @@ static void *thread(void *param) {
 	return (void *)NULL;
 }
 
-static struct threadqueue_t *initDev(JsonNode *jdevice) {
+static struct threadqueue_t *initDev(const JsonNode *jdevice) {
 	loop = 1;
 	char *output = json_stringify(jdevice, NULL);
 	JsonNode *json = json_decode(output);

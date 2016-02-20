@@ -33,12 +33,9 @@
 #include "pushover.h"
 
 static int checkArguments(struct rules_actions_t *obj) {
-	struct JsonNode *jtitle = NULL;
-	struct JsonNode *jmessage = NULL;
-	struct JsonNode *juser = NULL;
-	struct JsonNode *jtoken = NULL;
-	struct JsonNode *jvalues = NULL;
-	struct JsonNode *jchild = NULL;
+	const struct JsonNode *jtitle = NULL,
+		*jmessage = NULL, *juser = NULL, *jtoken = NULL,
+		*jvalues = NULL, *jchild = NULL;
 	int nrvalues = 0;
 
 	jtitle = json_find_member(obj->arguments, "TITLE");
@@ -116,19 +113,10 @@ static int checkArguments(struct rules_actions_t *obj) {
 static void *thread(void *param) {
 	struct rules_actions_t *pth = (struct rules_actions_t *)param;
 	// struct rules_t *obj = pth->obj;
-	struct JsonNode *arguments = pth->arguments;
-	struct JsonNode *jtitle = NULL;
-	struct JsonNode *jmessage = NULL;
-	struct JsonNode *juser = NULL;
-	struct JsonNode *jtoken = NULL;
-	struct JsonNode *jvalues1 = NULL;
-	struct JsonNode *jvalues2 = NULL;
-	struct JsonNode *jvalues3 = NULL;
-	struct JsonNode *jvalues4 = NULL;
-	struct JsonNode *jval1 = NULL;
-	struct JsonNode *jval2 = NULL;
-	struct JsonNode *jval3 = NULL;
-	struct JsonNode *jval4 = NULL;
+	const struct JsonNode *arguments = pth->arguments,
+		*jtitle = NULL, *jmessage = NULL, *juser = NULL, *jtoken = NULL,
+		*jvalues1 = NULL, *jvalues2 = NULL, *jvalues3 = NULL, *jvalues4 = NULL,
+		*jval1 = NULL, *jval2 = NULL, *jval3 = NULL, *jval4 = NULL;
 
 	action_pushover->nrthreads++;
 

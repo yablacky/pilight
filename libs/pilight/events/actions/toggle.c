@@ -30,12 +30,9 @@
 #include "toggle.h"
 
 static int checkArguments(struct rules_actions_t *obj) {
-	struct JsonNode *jdevice = NULL;
-	struct JsonNode *jbetween = NULL;
-	struct JsonNode *jsvalues = NULL;
-	struct JsonNode *jdvalues = NULL;
-	struct JsonNode *jschild = NULL;
-	struct JsonNode *jdchild = NULL;
+	const struct JsonNode *jdevice = NULL,
+		*jbetween = NULL, *jsvalues = NULL, *jdvalues = NULL,
+		*jschild = NULL, *jdchild = NULL;
 	double nr1 = 0.0, nr2 = 0.0;
 	int nrvalues = 0;
 	jdevice = json_find_member(obj->arguments, "DEVICE");
@@ -119,12 +116,9 @@ static int checkArguments(struct rules_actions_t *obj) {
 static void *thread(void *param) {
 	struct event_action_thread_t *pth = (struct event_action_thread_t *)param;
 	// struct rules_t *obj = pth->obj;
-	struct JsonNode *json = pth->obj->arguments;
 	struct devices_settings_t *tmp_settings = pth->device->settings;
-	struct JsonNode *jbetween = NULL;
-	struct JsonNode *jsvalues = NULL;
-	struct JsonNode *jstate1 = NULL;
-	struct JsonNode *jstate2 = NULL;
+	const struct JsonNode *json = pth->obj->arguments,
+		*jbetween = NULL, *jsvalues = NULL, *jstate1 = NULL, *jstate2 = NULL;
 	char *cstate = NULL, *state1 = NULL, *state2 = NULL;
 
 	event_action_started(pth);
@@ -165,10 +159,8 @@ static void *thread(void *param) {
 }
 
 static int run(struct rules_actions_t *obj) {
-	struct JsonNode *jdevice = NULL;
-	struct JsonNode *jbetween = NULL;
-	struct JsonNode *jdvalues = NULL;
-	struct JsonNode *jdchild = NULL;
+	const struct JsonNode *jdevice = NULL,
+		*jbetween = NULL, *jdvalues = NULL, *jdchild = NULL;
 
 	if((jdevice = json_find_member(obj->arguments, "DEVICE")) != NULL &&
 		 (jbetween = json_find_member(obj->arguments, "BETWEEN")) != NULL) {

@@ -152,7 +152,7 @@ static void createFooter(void) {
 	daycom->raw[49]=(PULSE_DIV*AVG_PULSE_LENGTH);
 }
 
-static int createCode(JsonNode *code) {
+static int createCode(const JsonNode *code) {
 	int id = -1;
 	int systemcode = -1;
 	int unit = -1;

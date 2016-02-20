@@ -1000,29 +1000,49 @@ int stricmp(char const *a, char const *b) {
 	}
 }
 
-int file_get_contents(char *file, char **content) {
+// Despite the content read is null-terminated, return the file size or -1
+// on error. Caller must treat other negative return values as unsigned!
+int file_get_contents(const char *file, char **content) {
 	FILE *fp = NULL;
 	size_t bytes = 0;
 	struct stat st;
 
 	if((fp = fopen(file, "rb")) == NULL) {
-		logprintf(LOG_ERR, "cannot open file: %s", file);
+		logprintf(LOG_ERR, "cannot open file '%s' for reading (%s)", file, strerror(errno));
 		return -1;
 	}
 
 	fstat(fileno(fp), &st);
 	bytes = (size_t)st.st_size;
 
-	if((*content = CALLOC(bytes+1, sizeof(char))) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		fclose(fp);
-		exit(EXIT_FAILURE);
+	if (content != NULL) {
+		if((*content = MALLOC(bytes+1)) == NULL) {
+			fprintf(stderr, "out of memory while reading file: '%s'\n", file);
+			fclose(fp);
+			return -1;
+		}
+
+		if(fread(*content, sizeof(char), bytes, fp) == -1) {
+			logprintf(LOG_ERR, "cannot read file: '%s' (%s)", file, strerror(errno));
+			fclose(fp);
+			FREE(*content);
+			return -1;
+		}
+		(*content)[bytes] = '\0';
 	}
 
-	if(fread(*content, sizeof(char), bytes, fp) == -1) {
-		logprintf(LOG_ERR, "cannot read file: %s", file);
-		return -1;
-	}
 	fclose(fp);
-	return 0;
+	int ret = (int) bytes;
+	if (ret == -1)	// overflow (file size is 0xFFFFFFFF bytes, which is rare...)
+		ret = (int) (bytes - 1);	// return one less is also wrong but it is really rare...
+	return ret;
+}
+
+int json_find_number(const JsonNode *object_or_array, const char *name, double *out) {
+	// incredible but json_find_number must return 0 on success and 1 on failure...
+	return json_get_number(object_or_array, name, out) ? 0 : 1;
+}
+int json_find_string(const JsonNode *object_or_array, const char *name, const char **out) {
+	// incredible but json_find_string must return 0 on success and 1 on failure...
+	return json_get_string(object_or_array, name, out) ? 0 : 1;
 }

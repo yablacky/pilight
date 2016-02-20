@@ -44,7 +44,7 @@ static void createMessage(int id, double temperature, double humidity, int batte
 	}
 }
 
-static int createCode(JsonNode *code) {
+static int createCode(const JsonNode *code) {
 	double itmp = 0;
 	int id = -999;
 	double temp = -999.0;

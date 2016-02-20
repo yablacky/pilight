@@ -85,7 +85,7 @@ static void hardware_remove(const char *name) {
 #endif
 
 void hardware_register(struct hardware_t **hw) {
-	*hw = MALLOC_OR_EXIT(sizeof(**hw));
+	CONFIG_ALLOC_UNNAMED_NODE(*hw);
 	(*hw)->options = NULL;
 	(*hw)->comment = NULL;
 	(*hw)->wait = 0;
@@ -111,8 +111,7 @@ void hardware_register(struct hardware_t **hw) {
 	pthread_mutex_init(&(*hw)->lock, &(*hw)->attr);
 	pthread_cond_init(&(*hw)->signal, NULL);
 
-	(*hw)->next = hardware;
-	hardware = (*hw);
+	CONFIG_PREPEND_NODE_TO_LIST(*hw, hardware);
 }
 
 void hardware_set_id(hardware_t *hw, const char *id) {
@@ -185,14 +184,14 @@ static JsonNode *hardware_sync(int level, const char *display) {
 	return root;
 }
 
-static int hardware_parse(JsonNode *root) {
+static int hardware_parse(const JsonNode *root) {
 	struct conf_hardware_t *hnode = NULL;
 	struct conf_hardware_t *tmp_confhw = NULL;
 	struct options_t *hw_option = NULL;
 	struct hardware_t *hw = NULL;
 
-	JsonNode *jmodule = NULL;
-	JsonNode *jvalues = NULL;
+	const JsonNode *jmodule = NULL;
+	const JsonNode *jvalues = NULL;
 
 	int i = 0, have_error = 0;
 

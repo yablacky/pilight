@@ -172,7 +172,7 @@ static void createFooter(void) {
 	rev2_switch->raw[49]=(PULSE_DIV*AVG_PULSE_LENGTH);
 }
 
-static int createCode(struct JsonNode *code) {
+static int createCode(const struct JsonNode *code) {
 	char id[3] = {'\0'};
 	int unit = -1;
 	int state = -1;
@@ -182,7 +182,7 @@ static int createCode(struct JsonNode *code) {
 	strcpy(id, "-1");
 
 	if(json_find_string(code, "id", &stmp) == 0)
-		strcpy(id, stmp);
+		strcpy(id, stmp);	// FIXME: potential buffer overflow.
 
 	if(json_find_number(code, "off", &itmp) == 0)
 		state=0;

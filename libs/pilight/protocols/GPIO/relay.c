@@ -44,7 +44,7 @@ static void createMessage(int gpio, int state) {
 		json_append_member(relay->message, "state", json_mkstring("off"));
 }
 
-static int createCode(JsonNode *code) {
+static int createCode(const JsonNode *code) {
 	int gpio = -1;
 	int state = -1;
 	double itmp = -1;
@@ -115,10 +115,10 @@ static void printHelp(void) {
 	printf("\t -g --gpio=gpio\t\t\tthe gpio the relay is connected to\n");
 }
 
-static int checkValues(JsonNode *code) {
+static int checkValues(const JsonNode *code) {
 	const char *def = NULL;
-	struct JsonNode *jid = NULL;
-	struct JsonNode *jchild = NULL;
+	const struct JsonNode *jid = NULL;
+	const struct JsonNode *jchild = NULL;
 	double itmp = -1;
 
 	if(json_find_string(code, "default-state", &def) != 0) {
@@ -194,8 +194,7 @@ void relayInit(void) {
 	options_add(&relay->options, 'f', "off", OPTION_NO_VALUE, DEVICES_STATE, JSON_STRING, NULL, NULL);
 	options_add(&relay->options, 'g', "gpio", OPTION_HAS_VALUE, DEVICES_ID, JSON_NUMBER, NULL, "[0-9]");
 
-	state = MALLOC(4);
-	strcpy(state, "off");
+	state = STRDUP_OR_EXIT("off");
 	options_add(&relay->options, 0, "default-state", OPTION_HAS_VALUE, DEVICES_SETTING, JSON_STRING, (void *)state, NULL);
 	options_add(&relay->options, 0, "readonly", OPTION_HAS_VALUE, GUI_SETTING, JSON_NUMBER, (void *)0, "^[10]{1}$");
 	options_add(&relay->options, 0, "confirm", OPTION_HAS_VALUE, GUI_SETTING, JSON_NUMBER, (void *)0, "^[10]{1}$");

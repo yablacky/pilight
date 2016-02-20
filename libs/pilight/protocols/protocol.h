@@ -99,12 +99,12 @@ typedef struct protocol_t {
 
 	union {
 		void (*parseCode)(void);
-		void (*parseCommand)(struct JsonNode *code);
+		void (*parseCommand)(const struct JsonNode *code);
 	};
 	int (*validate)(void);
-	int (*createCode)(JsonNode *code);
-	int (*checkValues)(JsonNode *code);
-	struct threadqueue_t *(*initDev)(JsonNode *device);
+	int (*createCode)(const JsonNode *code);
+	int (*checkValues)(const JsonNode *code);
+	struct threadqueue_t *(*initDev)(const JsonNode *device);
 	void (*printHelp)(void);
 	void (*gc)(void);
 	void (*threadGC)(void);

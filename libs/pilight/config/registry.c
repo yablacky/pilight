@@ -34,7 +34,7 @@
 
 struct JsonNode *registry = NULL;
 
-static int registry_get_value_recursive(struct JsonNode *root, const char *key, void **value, void **decimals, int type) {
+static int registry_get_value_recursive(const struct JsonNode *root, const char *key, void **value, void **decimals, int type) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	char *sub = strstr(key, ".");
@@ -43,7 +43,7 @@ static int registry_get_value_recursive(struct JsonNode *root, const char *key, 
 		int pos = sub-key;
 		buff[pos] = '\0';
 	}
-	struct JsonNode *member = json_find_member(root, buff);
+	const struct JsonNode *member = json_find_member(root, buff);
 	if(member != NULL) {
 		if(member->tag == type) {
 			if(type == JSON_NUMBER) {
@@ -77,7 +77,7 @@ static int registry_set_value_recursive(struct JsonNode *root, const char *key, 
 		int pos = sub-key;
 		buff[pos] = '\0';
 	}
-	struct JsonNode *member = json_find_member(root, buff);
+	struct JsonNode *member = (/* non-const */ JsonNode*) json_find_member(root, buff);
 	if(member != NULL) {
 		if(member->tag == type) {
 			if(type == JSON_NUMBER) {
@@ -125,9 +125,8 @@ static void registry_remove_empty_parent(struct JsonNode *root) {
 	struct JsonNode *parent = root->parent;
 	if(json_first_child(root) == NULL) {
 		if(parent != NULL) {
-			json_remove_from_parent(root);
+			json_delete_force(root);
 			registry_remove_empty_parent(parent);
-			json_delete(root);
 		}
 	}
 }
@@ -141,10 +140,9 @@ static int registry_remove_value_recursive(struct JsonNode *root, const char *ke
 		int pos = sub-key;
 		buff[pos] = '\0';
 	}
-	struct JsonNode *member = json_find_member(root, buff);
+	struct JsonNode *member = (JsonNode*) json_find_member(root, buff);
 	if(member != NULL) {
 		if(sub == NULL) {
-			json_remove_from_parent(member);
 			json_delete(member);
 			registry_remove_empty_parent(root);
 			FREE(buff);
@@ -217,7 +215,7 @@ int registry_remove_value(const char *key) {
 	return registry_remove_value_recursive(registry, key);
 }
 
-static int registry_parse(JsonNode *root) {
+static int registry_parse(const JsonNode *root) {
 	if(root->tag == JSON_OBJECT) {
 		char *content = json_stringify(root, NULL);
 		registry = json_decode(content);

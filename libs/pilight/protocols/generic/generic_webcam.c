@@ -30,7 +30,7 @@
 #include "../../core/gc.h"
 #include "generic_webcam.h"
 
-static int checkValues(JsonNode *code) {
+static int checkValues(const JsonNode *code) {
 	int height = 300;
 	double itmp = -1;
 

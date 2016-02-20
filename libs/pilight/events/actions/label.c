@@ -43,21 +43,10 @@ static struct units_t {
 };
 
 static int checkArguments(struct rules_actions_t *obj) {
-	struct JsonNode *jdevice = NULL;
-	struct JsonNode *jto = NULL;
-	struct JsonNode *jfor = NULL;
-	struct JsonNode *jafter = NULL;
-	struct JsonNode *jcolor = NULL;
-	struct JsonNode *javalues = NULL;
-	struct JsonNode *jbvalues = NULL;
-	struct JsonNode *jcvalues = NULL;
-	struct JsonNode *jdvalues = NULL;
-	struct JsonNode *jevalues = NULL;
-	struct JsonNode *jachild = NULL;
-	struct JsonNode *jbchild = NULL;
-	struct JsonNode *jcchild = NULL;
-	struct JsonNode *jdchild = NULL;
-	struct JsonNode *jechild = NULL;
+	const struct JsonNode *jdevice = NULL,
+		*jto = NULL, *jfor = NULL, *jafter = NULL, *jcolor = NULL,
+		*javalues = NULL, *jbvalues = NULL, *jcvalues = NULL, *jdvalues = NULL, *jevalues = NULL,
+		*jachild = NULL, *jbchild = NULL, *jcchild = NULL, *jdchild = NULL, *jechild = NULL;
 	char **array = NULL;
 	double nr1 = 0.0, nr2 = 0.0, nr3 = 0.0, nr4 = 0.0, nr5 = 0.0;
 	int nrvalues = 0, l = 0, i = 0, match = 0;
@@ -253,18 +242,11 @@ static int checkArguments(struct rules_actions_t *obj) {
 
 static void *thread(void *param) {
 	struct event_action_thread_t *pth = (struct event_action_thread_t *)param;
-	struct JsonNode *json = pth->obj->parsedargs;
-	struct JsonNode *jto = NULL;
-	struct JsonNode *jafter = NULL;
-	struct JsonNode *jfor = NULL;
-	struct JsonNode *jcolor = NULL;
-	struct JsonNode *javalues = NULL;
-	struct JsonNode *jcvalues = NULL;
-	struct JsonNode *jdvalues = NULL;
-	struct JsonNode *jevalues = NULL;
-	struct JsonNode *jlabel = NULL;
-	struct JsonNode *jaseconds = NULL;
-	struct JsonNode *jvalues = NULL;
+	const struct JsonNode *json = pth->obj->parsedargs,
+		*jto = NULL, *jafter = NULL, *jfor = NULL, *jcolor = NULL,
+		*javalues = NULL, *jcvalues = NULL, *jdvalues = NULL, *jevalues = NULL,
+		*jlabel = NULL, *jaseconds = NULL;
+	JsonNode *jvalues = NULL;
 	char *new_label = NULL, *old_label = NULL, *label = NULL, **array = NULL;
 	char *new_color = NULL, *old_color = NULL;
 	const char *color = NULL;
@@ -475,10 +457,8 @@ static void *thread(void *param) {
 }
 
 static int run(struct rules_actions_t *obj) {
-	struct JsonNode *jdevice = NULL;
-	struct JsonNode *jto = NULL;
-	struct JsonNode *jbvalues = NULL;
-	struct JsonNode *jbchild = NULL;
+	const struct JsonNode *jdevice = NULL,
+		*jto = NULL, *jbvalues = NULL, *jbchild = NULL;
 
 	if((jdevice = json_find_member(obj->parsedargs, "DEVICE")) != NULL &&
 		 (jto = json_find_member(obj->parsedargs, "TO")) != NULL) {

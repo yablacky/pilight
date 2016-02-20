@@ -139,7 +139,7 @@ static void createFooter(void) {
 	pollin->raw[49]=(PULSE_DIV*AVG_PULSE_LENGTH);
 }
 
-static int createCode(struct JsonNode *code) {
+static int createCode(const struct JsonNode *code) {
 	int systemcode = -1;
 	int unitcode = -1;
 	int state = -1;
@@ -155,7 +155,7 @@ static int createCode(struct JsonNode *code) {
 		state=0;
 
 	if(systemcode == -1 || unitcode == -1 || state == -1) {
-		logprintf(LOG_ERR, "pollin: insufficient number of arguments");
+		logprintf(LOG_ERR, "pollin: insufficient number of arguments (systemcode + unitcode + on or off)");
 		return EXIT_FAILURE;
 	} else if(systemcode > 31 || systemcode < 0) {
 		logprintf(LOG_ERR, "pollin: invalid systemcode range");

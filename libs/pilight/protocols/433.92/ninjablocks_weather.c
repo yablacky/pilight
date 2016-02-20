@@ -126,55 +126,43 @@ static void parseCode(void) {
 	}
 }
 
-static int checkValues(struct JsonNode *jvalues) {
-	struct JsonNode *jid = NULL;
+static int checkValues(const struct JsonNode *jvalues) {
+	const const struct JsonNode *jid = NULL;
 
 	if((jid = json_find_member(jvalues, "id"))) {
 		struct settings_t *snode = NULL;
-		struct JsonNode *jchild = NULL;
-		struct JsonNode *jchild1 = NULL;
+		const struct JsonNode *jchild = NULL;
+		const struct JsonNode *jchild1 = NULL;
 		double unit = -1, id = -1;
-		int match = 0;
 
-		jchild = json_first_child(jid);
-		while(jchild) {
-			jchild1 = json_first_child(jchild);
-			while(jchild1) {
+		json_foreach(jchild, jid) {
+			json_foreach(jchild1, jchild) {
 				if(strcmp(jchild1->key, "unit") == 0) {
 					unit = jchild1->number_;
 				}
 				if(strcmp(jchild1->key, "id") == 0) {
 					id = jchild1->number_;
 				}
-				jchild1 = jchild1->next;
 			}
-			jchild = jchild->next;
 		}
 
 		struct settings_t *tmp = settings;
 		while(tmp) {
 			if(fabs(tmp->id-id) < EPSILON && fabs(tmp->unit-unit) < EPSILON) {
-				match = 1;
 				break;
 			}
 			tmp = tmp->next;
 		}
 
-		if(match == 0) {
-			if((snode = MALLOC(sizeof(struct settings_t))) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+		if(tmp == NULL) {
+			CONFIG_ALLOC_UNNAMED_NODE(snode);
 			snode->id = id;
 			snode->unit = unit;
-			snode->temp = 0;
-			snode->humi = 0;
 
 			json_find_number(jvalues, "temperature-offset", &snode->temp);
 			json_find_number(jvalues, "humidity-offset", &snode->humi);
 
-			snode->next = settings;
-			settings = snode;
+			CONFIG_PREPEND_NODE_TO_LIST(snode, settings);
 		}
 	}
 	return 0;
@@ -186,9 +174,6 @@ static void gc(void) {
 		tmp = settings;
 		settings = settings->next;
 		FREE(tmp);
-	}
-	if(settings != NULL) {
-		FREE(settings);
 	}
 }
 

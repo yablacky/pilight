@@ -93,9 +93,9 @@ static void createMessage(const char *server, int port, const char *action, cons
 static void *thread(void *param) {
 	struct protocol_threads_t *node = (struct protocol_threads_t *)param;
 	struct JsonNode *json = (struct JsonNode *)node->param;
-	struct JsonNode *jid = NULL;
-	struct JsonNode *jchild = NULL;
-	struct JsonNode *jchild1 = NULL;
+	const struct JsonNode *jid = NULL;
+	const struct JsonNode *jchild = NULL;
+	const struct JsonNode *jchild1 = NULL;
 	struct sockaddr_in serv_addr;
 	struct data_t *xnode = MALLOC_OR_EXIT(sizeof(struct data_t));
 
@@ -249,9 +249,9 @@ static void *thread(void *param) {
 					} else {
 						if(json_validate(recvBuff, NULL) == true) {
 							JsonNode *joutput = json_decode(recvBuff);
-							JsonNode *params = NULL;
-							JsonNode *data = NULL;
-							JsonNode *item = NULL;
+							const JsonNode *params = NULL;
+							const JsonNode *data = NULL;
+							const JsonNode *item = NULL;
 
 							if(json_find_string(joutput, "method", &m) == 0) {
 								if(strcmp(m, "GUI.OnScreensaverActivated") == 0) {
@@ -303,7 +303,7 @@ static void *thread(void *param) {
 	return (void *)NULL;
 }
 
-static struct threadqueue_t *initDev(JsonNode *jdevice) {
+static struct threadqueue_t *initDev(const JsonNode *jdevice) {
 	loop = 1;
 	char *output = json_stringify(jdevice, NULL);
 	JsonNode *json = json_decode(output);
@@ -335,7 +335,7 @@ static void threadGC(void) {
 	protocol_thread_free(xbmc);
 }
 
-static int checkValues(JsonNode *code) {
+static int checkValues(const JsonNode *code) {
 	const char *action = NULL;
 	const char *media = NULL;
 

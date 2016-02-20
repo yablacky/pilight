@@ -63,9 +63,9 @@ int devices_update(char *protoname, JsonNode *json, enum origin_t origin, JsonNo
 	/* The pointer to the protocol options */
 	struct options_t *opt = NULL;
 	/* Get the message part of the sended code */
-	JsonNode *message = json_find_member(json, "message");
+	const JsonNode *message = json_find_member(json, "message");
 	/* Get the settings part of the sended code */
-	JsonNode *settings = json_find_member(json, "settings");
+	const JsonNode *settings = json_find_member(json, "settings");
 	/* The return JSON object will all updated devices */
 	JsonNode *rroot = json_mkobject();
 	JsonNode *rdev = json_mkarray();
@@ -164,7 +164,7 @@ int devices_update(char *protoname, JsonNode *json, enum origin_t origin, JsonNo
 						opt = protocol->options;
 						while(opt) {
 							if(opt->conftype == DEVICES_ID) {
-								JsonNode *jtmp = NULL;
+								const JsonNode *jtmp = NULL;
 								json_foreach(jtmp, message) {
 									if(strcmp(jtmp->key, opt->name) == 0) {
 										match1++;
@@ -213,7 +213,7 @@ int devices_update(char *protoname, JsonNode *json, enum origin_t origin, JsonNo
 										strcpy(sstring_, stmp);
 										stateType = JSON_STRING;
 									}
-									struct JsonNode *jtmp = NULL;
+									const struct JsonNode *jtmp = NULL;
 									if((jtmp = json_find_member(message, opt->name)) != NULL &&
 									    jtmp->tag == JSON_NUMBER) {
 										snumber_ = jtmp->number_;
@@ -252,7 +252,7 @@ int devices_update(char *protoname, JsonNode *json, enum origin_t origin, JsonNo
 											valueType = JSON_STRING;
 											is_valid = 1;
 										}
-										struct JsonNode *jtmp = NULL;
+										const struct JsonNode *jtmp = NULL;
 										if((jtmp = json_find_member(message, opt->name)) != NULL &&
 										    jtmp->tag == JSON_NUMBER) {
 											vnumber_ = jtmp->number_;
@@ -263,7 +263,7 @@ int devices_update(char *protoname, JsonNode *json, enum origin_t origin, JsonNo
 
 										/* Check if the protocol settings of this device are valid to
 										   make sure no errors occur in the config.json. */
-										JsonNode *jsettings = NULL;
+										const JsonNode *jsettings = NULL;
 										json_foreach(jsettings, settings) {
 											if(jsettings->tag == JSON_NUMBER) {
 												json_append_member(jcode, jsettings->key, json_mknumber(jsettings->number_, jsettings->decimals_));
@@ -300,7 +300,7 @@ int devices_update(char *protoname, JsonNode *json, enum origin_t origin, JsonNo
 									memset(vstring_, '\0', sizeof(vstring_));
 									vnumber_ = -1;
 									vdecimals_ = 0;
-									struct JsonNode *jtmp = NULL;
+									const struct JsonNode *jtmp = NULL;
 									if(json_find_string(message, opt->name, &stmp) == 0) {
 										strcpy(vstring_, stmp);
 										valueType = JSON_STRING;
@@ -369,7 +369,7 @@ int devices_update(char *protoname, JsonNode *json, enum origin_t origin, JsonNo
 								//break;
 							}
 							if(update == 1) {
-								struct JsonNode *jchild = NULL;
+								const struct JsonNode *jchild = NULL;
 								json_foreach(jchild, rdev) {
 									if(jchild->tag == JSON_STRING && strcmp(dptr->id, jchild->string_) == 0) {
 										break;
@@ -687,7 +687,7 @@ struct JsonNode *devices_sync(int level, const char *media) {
 			while(tmp_settings) {
 				tmp_values = tmp_settings->values;
 				if(strcmp(tmp_settings->name, "id") == 0) {
-					jid = json_find_member(jdevice, tmp_settings->name);
+					jid = (JsonNode*) json_find_member(jdevice, tmp_settings->name);
 					JsonNode *jnid = json_mkobject();
 					while(tmp_values) {
 						if(tmp_values->type == JSON_NUMBER) {
@@ -745,13 +745,29 @@ struct JsonNode *devices_sync(int level, const char *media) {
 	return jroot;
 }
 
+void append_device_values_from_json_node(const JsonNode *js, devices_values_t**list) {
+	struct devices_values_t *vnode = NULL;
+	if(js->tag == JSON_STRING) {
+		CONFIG_ALLOC_NAMED_NODE(vnode, js->key);
+		vnode->string_ = STRDUP_OR_EXIT(js->string_);
+		vnode->type = JSON_STRING;
+		CONFIG_APPEND_NODE_TO_LIST(vnode, *list);
+	} else if(js->tag == JSON_NUMBER) {
+		CONFIG_ALLOC_NAMED_NODE(vnode, js->key);
+		vnode->number_ = js->number_;
+		vnode->decimals = js->decimals_;
+		vnode->type = JSON_NUMBER;
+		CONFIG_APPEND_NODE_TO_LIST(vnode, *list);
+	}
+}
+
 /* Save the device settings to the device struct */
-static void devices_save_setting(int i, struct JsonNode *jsetting, struct devices_t *device) {
+static void devices_save_setting(int i, const struct JsonNode *jsetting, struct devices_t *device) {
 	/* Struct to store the values */
 	struct devices_values_t *vnode = NULL;
 	struct devices_settings_t *snode = NULL;
 	/* Temporary JSON pointer */
-	struct JsonNode *jtmp;
+	const struct JsonNode *jtmp;
 
 	/* Variable holder for casting settings */
 	const char *stmp = NULL;
@@ -764,21 +780,9 @@ static void devices_save_setting(int i, struct JsonNode *jsetting, struct device
 				CONFIG_ALLOC_NAMED_NODE(snode, jsetting->key);
 
 				if(jtmp->tag == JSON_OBJECT) {
-					JsonNode *jtmp1 = NULL;
+					const JsonNode *jtmp1 = NULL;
 					json_foreach(jtmp1, jtmp1) {
-						if(jtmp1->tag == JSON_STRING) {
-							CONFIG_ALLOC_NAMED_NODE(vnode, jtmp1->key);
-							vnode->string_ = STRDUP_OR_EXIT(jtmp1->string_);
-							vnode->type = JSON_STRING;
-						} else if(jtmp1->tag == JSON_NUMBER) {
-							CONFIG_ALLOC_NAMED_NODE(vnode, jtmp1->key);
-							vnode->number_ = jtmp1->number_;
-							vnode->decimals = jtmp1->decimals_;
-							vnode->type = JSON_NUMBER;
-						} else {
-							continue;
-						}
-						CONFIG_APPEND_NODE_TO_LIST(vnode, snode->values);
+						append_device_values_from_json_node(jtmp1, &snode->values);
 					}
 				}
 
@@ -789,19 +793,7 @@ static void devices_save_setting(int i, struct JsonNode *jsetting, struct device
 		CONFIG_ALLOC_NAMED_NODE(snode, jsetting->key);
 
 		json_foreach(jtmp, jsetting) {
-			if(jtmp->tag == JSON_STRING) {
-				CONFIG_ALLOC_NAMED_NODE(vnode, jtmp->key);
-				vnode->string_ = STRDUP_OR_EXIT(jtmp->string_);
-				vnode->type = JSON_STRING;
-			} else if(jtmp->tag == JSON_NUMBER) {
-				CONFIG_ALLOC_NAMED_NODE(vnode, jtmp->key);
-				vnode->number_ = jtmp->number_;
-				vnode->decimals = jtmp->decimals_;
-				vnode->type = JSON_NUMBER;
-			} else {
-				continue;
-			}
-			CONFIG_APPEND_NODE_TO_LIST(vnode, snode->values);
+			append_device_values_from_json_node(jtmp, &snode->values);
 		}
 
 		CONFIG_APPEND_NODE_TO_LIST(snode, device->settings);
@@ -810,12 +802,12 @@ static void devices_save_setting(int i, struct JsonNode *jsetting, struct device
 		/* New device settings node */
 		CONFIG_ALLOC_NAMED_NODE(snode, jsetting->key);
 
-		vnode = NULL;
 		/* Cast and store the new value */
 		if(jsetting->tag == JSON_STRING && json_find_string(jsetting->parent, jsetting->key, &stmp) == 0) {
 			CONFIG_ALLOC_UNNAMED_NODE(vnode);
 			vnode->string_ = STRDUP_OR_EXIT(stmp);
 			vnode->type = JSON_STRING;
+			CONFIG_APPEND_NODE_TO_LIST(vnode, snode->values);
 		} else if(jsetting->tag == JSON_NUMBER &&
 		         (jtmp = json_find_member(jsetting->parent, jsetting->key)) != NULL &&
 				 jtmp->tag == JSON_NUMBER) {
@@ -823,20 +815,20 @@ static void devices_save_setting(int i, struct JsonNode *jsetting, struct device
 			vnode->number_ = jtmp->number_;
 			vnode->decimals = jtmp->decimals_;
 			vnode->type = JSON_NUMBER;
+			CONFIG_APPEND_NODE_TO_LIST(vnode, snode->values);
 		}
 
-		CONFIG_APPEND_NODE_TO_LIST(vnode, snode->values);
 		CONFIG_APPEND_NODE_TO_LIST(snode, device->settings);
 	}
 }
 
-static int devices_check_id(int i, JsonNode *jsetting, struct devices_t *device) {
+static int devices_check_id(int i, const JsonNode *jsetting, struct devices_t *device) {
 	/* Temporary options pointer */
 	struct options_t *tmp_options = NULL;
 	/* Temporary ID array pointer */
-	struct JsonNode *jid = NULL;
+	const struct JsonNode *jid = NULL;
 	/* Temporary ID values pointer */
-	struct JsonNode *jvalues = NULL;
+	const struct JsonNode *jvalues = NULL;
 	/* Temporary protocols pointer */
 	struct protocols_t *tmp_protocols = NULL;
 
@@ -963,7 +955,7 @@ static int devices_validate_settings(void) {
 					/* Retrieve all protocol specific settings for this device. Also add all
 					   device values and states so it can be validated by the protocol */
 					if(strcmp(tmp_settings->name, "id") == 0) {
-						JsonNode *jid = json_find_member(jdevice, "id");
+						JsonNode *jid = (JsonNode*)json_find_member(jdevice, "id");
 						if(!jid) {
 							jid = json_mkarray();
 							json_append_member(jdevice, tmp_settings->name, jid);
@@ -1022,7 +1014,7 @@ clear:
 	return have_error;
 }
 
-static int devices_check_state(int i, JsonNode *jsetting, struct devices_t *device) {
+static int devices_check_state(int i, const JsonNode *jsetting, struct devices_t *device) {
 	/* Temporary options pointer */
 	struct options_t *tmp_options;
 
@@ -1106,11 +1098,11 @@ clear:
 	return have_error;
 }
 
-static int devices_parse_elements(JsonNode *jdevices, struct devices_t *device) {
+static int devices_parse_elements(const JsonNode *jdevices, struct devices_t *device) {
 	/* Temporary settings holder */
 	struct devices_settings_t *tmp_settings = NULL;
 	/* JSON devices iterator */
-	JsonNode *jsettings = NULL;
+	const JsonNode *jsettings = NULL;
 	/* Temporarily options pointer */
 	struct options_t *tmp_options = NULL;
 	/* Temporarily protocols pointer */
@@ -1316,16 +1308,16 @@ clear:
 	return have_error;
 }
 
-static int devices_parse(JsonNode *root) {
+static int devices_parse(const JsonNode *root) {
 	/* Struct to store the devices */
 	struct devices_t *dnode = NULL;
 	/* Temporary JSON devices  */
 	struct devices_t *tmp_devices = NULL;
 	/* Temporary protocol JSON array */
-	JsonNode *jprotocol = NULL;
-	JsonNode *jprotocols = NULL;
+	const JsonNode *jprotocol = NULL;
+	const JsonNode *jprotocols = NULL;
 	/* JSON devices iterator */
-	JsonNode *jdevices = NULL;
+	const JsonNode *jdevices = NULL;
 
 	int i = 0, have_error = 0, match = 0, x = 0;
 
@@ -1508,7 +1500,7 @@ int devices_gc(void) {
 	return EXIT_SUCCESS;
 }
 
-static int devices_read(JsonNode *root) {
+static int devices_read(const JsonNode *root) {
 	if(devices_parse(root) == 0 && devices_validate_settings() == 0) {
 		return 0;
 	} else {

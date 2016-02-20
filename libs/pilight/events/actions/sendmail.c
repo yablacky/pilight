@@ -40,12 +40,10 @@
 
 //check arguments and settings
 static int checkArguments(struct rules_actions_t *obj) {
-	struct JsonNode *jsubject = NULL;
-	struct JsonNode *jmessage = NULL;
-	struct JsonNode *jto = NULL;
-	struct JsonNode *jvalues = NULL;
-	struct JsonNode *jval = NULL;
-	struct JsonNode *jchild = NULL;
+	const struct JsonNode *jsubject = NULL,
+		*jmessage = NULL, *jto = NULL,
+		*jvalues = NULL, *jval = NULL,
+		*jchild = NULL;
 	const char *stmp = NULL;
 	int nrvalues = 0, itmp = 0;
 #if !defined(__FreeBSD__) && !defined(_WIN32)
@@ -145,16 +143,10 @@ static int checkArguments(struct rules_actions_t *obj) {
 
 static void *thread(void *param) {
 	struct rules_actions_t *pth = (struct rules_actions_t *)param;
-	struct JsonNode *arguments = pth->parsedargs;
-	struct JsonNode *jsubject = NULL;
-	struct JsonNode *jmessage = NULL;
-	struct JsonNode *jto = NULL;
-	struct JsonNode *jvalues1 = NULL;
-	struct JsonNode *jvalues2 = NULL;
-	struct JsonNode *jvalues3 = NULL;
-	struct JsonNode *jval1 = NULL;
-	struct JsonNode *jval2 = NULL;
-	struct JsonNode *jval3 = NULL;
+	const struct JsonNode *arguments = pth->parsedargs,
+		*jsubject = NULL, *jmessage = NULL, *jto = NULL,
+		*jvalues1 = NULL, *jvalues2 = NULL, *jvalues3 = NULL,
+		*jval1 = NULL, *jval2 = NULL, *jval3 = NULL;
 
 	action_sendmail->nrthreads++;
 

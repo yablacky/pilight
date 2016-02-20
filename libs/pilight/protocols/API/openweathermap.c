@@ -66,13 +66,13 @@ static unsigned short threads = 0;
 static void *openweathermapParse(void *param) {
 	struct protocol_threads_t *thread = (struct protocol_threads_t *)param;
 	struct JsonNode *json = (struct JsonNode *)thread->param;
-	struct JsonNode *jid = NULL;
-	struct JsonNode *jchild = NULL;
-	struct JsonNode *jchild1 = NULL;
-	struct JsonNode *node = NULL;
+	const struct JsonNode *jid = NULL;
+	const struct JsonNode *jchild = NULL;
+	const struct JsonNode *jchild1 = NULL;
+	const struct JsonNode *node = NULL;
 	struct JsonNode *jdata = NULL;
-	struct JsonNode *jmain = NULL;
-	struct JsonNode *jsys = NULL;
+	const struct JsonNode *jmain = NULL;
+	const struct JsonNode *jsys = NULL;
 	struct settings_t *wnode = MALLOC_OR_EXIT(sizeof(struct settings_t));
 
 	int interval = 86400, ointerval = 86400, event = 0;
@@ -81,7 +81,7 @@ static void *openweathermapParse(void *param) {
 
 	char url[1024];
 	char *data = NULL;
-	char typebuf[255], *tp = typebuf;
+	char typebuf[255] = { 0 }, *tp = typebuf;
 	double temp = 0, sunrise = 0, sunset = 0, humi = 0;
 	int ret = 0, size = 0;
 
@@ -89,8 +89,6 @@ static void *openweathermapParse(void *param) {
 	struct tm tm;
 
 	threads++;
-
-	memset(&typebuf, '\0', 255);
 
 	int has_country = 0, has_location = 0;
 	if((jid = json_find_member(json, "id"))) {
@@ -290,7 +288,7 @@ static void *openweathermapParse(void *param) {
 	return (void *)NULL;
 }
 
-static struct threadqueue_t *initDev(JsonNode *jdevice) {
+static struct threadqueue_t *initDev(const JsonNode *jdevice) {
 	loop = 1;
 	char *output = json_stringify(jdevice, NULL);
 	JsonNode *json = json_decode(output);
@@ -300,7 +298,7 @@ static struct threadqueue_t *initDev(JsonNode *jdevice) {
 	return threads_register("openweathermap", &openweathermapParse, (void *)node, 0);
 }
 
-static int checkValues(JsonNode *code) {
+static int checkValues(const JsonNode *code) {
 	double interval = INTERVAL;
 
 	json_find_number(code, "poll-interval", &interval);
@@ -313,7 +311,7 @@ static int checkValues(JsonNode *code) {
 	return 0;
 }
 
-static int createCode(JsonNode *code) {
+static int createCode(const JsonNode *code) {
 	struct settings_t *wtmp = settings;
 	const char *country = NULL;
 	const char *location = NULL;

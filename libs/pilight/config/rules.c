@@ -40,10 +40,10 @@
 
 static struct rules_t *rules = NULL;
 
-static int rules_parse(JsonNode *root) {
+static int rules_parse(const JsonNode *root) {
 	int have_error = 0, match = 0, x = 0;
 	unsigned int i = 0;
-	struct JsonNode *jrules = NULL;
+	const struct JsonNode *jrules = NULL;
 	const char *rule = NULL;
 	double active = 1.0;
 

@@ -19,7 +19,89 @@
   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
   THE SOFTWARE.
+
 */
+#if 0
+  Features added 2016 by Lutz Schwarz (schwarz.ware@gmx.de):
+
+  (1)	The JSON parser now accepts dangling commas so [1,] is allowed
+	and is the same as [1] and { "foo": "bar", } is ok accordingly.
+	Dangling commas are simply ignored, e.g. they will not generated
+	when stringifying the parsed result.
+
+  (2)	The JSON parser now accepts comments at some usual (not all)
+	positions in the json code. Comments may be written as block
+	comments /* ... */ or C++ style comments which are from //
+	up to end of line. Nested block comments are not allowed.
+
+	In particular, comments are allowed just before array elements
+	and before object members or as only or as last comment in an
+	container, like this:
+	[ // An array starts here.
+		// The next is an empty object:
+		{ },
+
+		/*
+		** This is a multi line comment and it "belongs"
+		** to the next item in the array:
+		*/
+		"this is the commented item",
+
+		[ /* this is an empty array */ ],
+
+		// And now an object with commented members:
+		{
+			// this comment "belongs" to "name"
+			"name": "foo",
+			"age": 88, // surprise: comment belongs to "income"!
+			/* The income is
+			   confidential, of course. */
+			"income": 0
+		},
+		// To keep this the last comment in the array, add
+		// more elements just in front of this comment.
+	]
+
+	Examples for positions that are not allowed:
+	{
+		"foo" /* bad-place */ : /* also bad */ "bar",
+
+		[ "baz" /* not a good place */ , "boo" ],
+		[ "bar" /* place ok if last */ ]
+	},
+
+	The JSON parser can deliver the resulting json-node-tree
+	with embedded comments which are then simply added to the
+	enclosing container (like cockoo-s egs) just as regular
+	members.
+	Code that traverses the json-node-tree must care for them.
+	There is a json_is_comment(node) to do so. json_foreach() does
+	not deliver comment enries. But json_foreach_and_all() does.
+
+	The json comments may also stripped off from the json-node-tree
+	all at once, can be stored separately (it is a json object as
+	well) and can be merged in again when stringifying.  Thereby
+	all matching comments (by structure depth, name and/or index)
+	are merged in, all other comments are silently ignored.
+
+	Use json_decode_ex() and json_stringify_ex() if you like to
+	deal with comments. For downward compatibility the previous
+	function json_decode() and json_stringify() behave as usual
+	(and do not deliver nor merge-in comments).
+
+	The comment style (/* */ or //....) is remembered when parsed
+	and will be used on stringifying if possible. Should the
+	comment text contain characters or character sequences that
+	would render the generated comment un-parsable, a suitable
+	style is used. So it is safe to programmatically modify or
+	insert comments of arbitrary comment text.
+
+  (3)	The JSON parser now returns the position of the error in
+	case the json code could not be parsed. For convenience
+	there is a json_get_line_number() to find the line number
+	and position in the line.
+	
+#endif
 
 #include <assert.h>
 #include <stdint.h>
@@ -30,21 +112,50 @@
 #include "json.h"
 #include "mem.h"
 
+#ifdef MALLOC_OR_EXIT
+
+/*
+ * Assume these macros are also defined:
+	REALLOC_OR_EXIT(p, len)
+	STRDUP_OR_EXIT(str)
+	FREE(p)
+ */
+
+#else
+
 #define out_of_memory() do {                    \
 		fprintf(stderr, "Out of memory.\n");    \
 		exit(EXIT_FAILURE);                     \
 	} while (0)
 
+static void *json_malloc(unsigned int *len)
+{
+	void *b = malloc(a, len);
+	if (b == NULL)
+		out_of_memory();
+	return b;
+}
+
+static void *json_realloc(void *a, unsigned int *len)
+{
+	void *b = realloc(a, len);
+	if (b == NULL)
+		out_of_memory();
+	return b;
+}
+
 /* Sadly, strdup is not portable. */
 static char *json_strdup(const char *str)
 {
-	char *ret = (char*) malloc(strlen(str) + 1);
-	memset(ret, 0, strlen(str) + 1);
-	if (ret == NULL)
-		out_of_memory();
-	strcpy(ret, str);
-	return ret;
+	return strcpy(json_malloc(strlen(str)+1), str);
 }
+
+#define MALLOC_OR_EXIT(len)     json_malloc(len)
+#define REALLOC_OR_EXIT(p, len) json_realloc(p, len)
+#define STRDUP_OR_EXIT(str)     json_strdup(str)
+#define FREE(p) free(p)
+
+#endif
 
 /* String buffer */
 
@@ -53,16 +164,16 @@ typedef struct
 	char *cur;
 	char *end;
 	char *start;
+	const char *space;
 } SB;
 
 static void sb_init(SB *sb)
 {
-	sb->start = (char*) malloc(17);
+	sb->start = (char*) MALLOC_OR_EXIT(17);
 	memset(sb->start, 0, 17);
-	if (sb->start == NULL)
-		out_of_memory();
 	sb->cur = sb->start;
 	sb->end = sb->start + 16;
+	sb->space = NULL;
 }
 
 /* sb and need may be evaluated multiple times. */
@@ -80,9 +191,7 @@ static void sb_grow(SB *sb, int need)
 		alloc *= 2;
 	} while (alloc < length + need);
 
-	sb->start = (char*) realloc(sb->start, alloc + 1);
-	if (sb->start == NULL)
-		out_of_memory();
+	sb->start = (char*) REALLOC_OR_EXIT(sb->start, alloc + 1);
 	sb->cur = sb->start + length;
 	sb->end = sb->start + alloc;
 }
@@ -105,17 +214,32 @@ static void sb_puts(SB *sb, const char *str)
 	sb_put(sb, str, strlen(str));
 }
 
+static void sb_put_space(SB *sb, int times)
+{
+	if (sb->space)
+		while(--times >= 0)
+			sb_puts(sb, sb->space);
+}
+
+static size_t sb_size(const SB *sb)
+{
+	assert(sb->cur >= sb->start);
+	return sb->cur - sb->start;
+}
+
 static char *sb_finish(SB *sb)
 {
 	*sb->cur = 0;
-	assert(sb->start <= sb->cur && strlen(sb->start) == (size_t)(sb->cur - sb->start));
+	// The next assertion does not hold, if there was a sb_putc(sb, 0)
+	// or sb_put(sb, "", 1). But ok, who does this?
+	assert(sb->start <= sb->cur && strlen(sb->start) == sb_size(sb));
 	return sb->start;
 }
 
 static void sb_free(SB *sb)
 {
-	free(sb->start);
-	sb->start = sb->cur = sb->end = NULL;
+	FREE(sb->start);
+	sb->space = sb->start = sb->cur = sb->end = NULL;
 }
 
 /*
@@ -332,8 +456,6 @@ static void to_surrogate_pair(uchar_t unicode, uint16_t *uc, uint16_t *lc)
 #define is_space(c) ((c) == '\t' || (c) == '\n' || (c) == '\r' || (c) == ' ')
 #define is_digit(c) ((c) >= '0' && (c) <= '9')
 
-#define node_is_container(node) ((node)->tag == JSON_ARRAY || (node)->tag == JSON_OBJECT)
-
 static bool parse_value     (const char **sp, const char **se, JsonNode        **out);
 static bool parse_string    (const char **sp, const char **se, char            **out);
 static bool parse_number    (const char **sp, const char **se, double           *out, int *decimals);
@@ -345,16 +467,16 @@ static bool parse_comment   (const char **sp, const char **se, JsonNode        *
 static bool expect_literal  (const char **sp, const char *str);
 #define skip_space(s) while (is_space(**s)) (*(s))++
 
-static void emit_value              (SB *out, const JsonNode *node);
-static void emit_value_indented     (SB *out, const JsonNode *node, const char *space, int indent_level);
+static void emit_value              (SB *out, const JsonNode *node, const JsonNode *comment);
+static void emit_value_indented     (SB *out, const JsonNode *node, const JsonNode *comment, int indent_level);
 static void emit_string             (SB *out, const char *str);
 static void emit_number             (SB *out, double num, int decimals);
-static void emit_array              (SB *out, const JsonNode *array);
-static void emit_array_indented     (SB *out, const JsonNode *array, const char *space, int indent_level);
-static void emit_object             (SB *out, const JsonNode *object);
-static void emit_object_indented    (SB *out, const JsonNode *object, const char *space, int indent_level);
-static bool emit_comment            (SB *out, const JsonNode *object);
-static bool emit_comment_indented   (SB *out, const JsonNode *object, const char *space, int indent_level);
+static void emit_array              (SB *out, const JsonNode *array, const JsonNode *comment);
+static void emit_array_indented     (SB *out, const JsonNode *array, const JsonNode *comment, int indent_level);
+static void emit_object             (SB *out, const JsonNode *object, const JsonNode *comment);
+static void emit_object_indented    (SB *out, const JsonNode *object, const JsonNode *comment, int indent_level);
+static bool emit_comment            (SB *out, const JsonNode *comment);
+static bool emit_comment_indented   (SB *out, const JsonNode *comment);
 
 static int write_hex16(char *out, uint16_t val);
 
@@ -362,6 +484,11 @@ static JsonNode *mknode(JsonTag tag);
 static void append_node(JsonNode *parent, JsonNode *child);
 static void prepend_node(JsonNode *parent, JsonNode *child);
 static void append_member(JsonNode *object, char *key, JsonNode *value);
+
+#define json_foreach_comment(i, object_or_array) json_foreach_and_all(i, object_or_array) \
+                                             if (!json_is_comment(i)) continue; else
+
+static const char dangling_comment_key[] = "dangling\tcomment\001\002\003";
 
 /* Assertion-friendly validity checks */
 static bool tag_is_valid(unsigned int tag);
@@ -382,8 +509,64 @@ JsonNode *json_decode(const char *json)
 		return NULL;
 	}
 
+	return json_strip_comments(ret, NULL);
+}
+
+JsonNode *json_decode_ex(const char *json, const char **problem, JsonNode **comments)
+{
+	const char *s = json;
+	JsonNode *ret;
+
+	skip_space(&s);
+	if (!parse_value(&s, problem, &ret))
+		return NULL;
+
+	skip_space(&s);
+	if (problem)
+		*problem = s;
+
+	if (*s != 0) {
+		json_delete(ret);
+		return NULL;
+	}
+
+	if (comments != JSON_WANT_EMBEDDED_COMMENTS) {
+
+		JsonNode *found_comments = comments ? json_mkobject() : NULL;
+
+		ret = json_strip_comments(ret, found_comments);
+
+		if (found_comments) {
+			if (json_first_child(found_comments)) // really found some.
+				*comments = found_comments;
+			else {
+				json_delete(found_comments);
+				*comments = found_comments = NULL;
+			}
+		}
+	}
+
 	return ret;
 }
+
+int json_get_line_number(const char *json, const char *problem, int *position_in_line)
+{
+	if (position_in_line)
+		*position_in_line = -1;
+	if (json == NULL || problem == NULL)
+		return -1;
+	if (problem < json || problem > json+strlen(json))
+		return -2;
+
+	int lino = 1;
+	const char *last_line, *s = json;
+	while ((s=strchr(last_line = s, '\n')) && s <= problem)
+		s++, lino++;
+	if (position_in_line)
+		*position_in_line = problem - last_line;
+	return lino;
+}
+
 
 char *json_encode(const JsonNode *node)
 {
@@ -402,43 +585,127 @@ char *json_encode_string(const char *str)
 
 char *json_stringify(const JsonNode *node, const char *space)
 {
+	return json_stringify_ex(node, space, NULL);
+}
+
+char *json_stringify_ex(const JsonNode *node, const char *space, const JsonNode *comments)
+{
 	SB sb;
 	sb_init(&sb);
 
-	if (space != NULL)
-		emit_value_indented(&sb, node, space, 0);
-	else
-		emit_value(&sb, node);
+	if (comments && comments->tag != JSON_OBJECT)
+		comments = NULL;
+
+	if (node != NULL)
+	{
+		sb.space = space;
+		if (space != NULL)
+			emit_value_indented(&sb, node, comments, 0);
+		else
+			emit_value(&sb, node, comments);
+	}
 
 	return sb_finish(&sb);
 }
 
-void json_delete(JsonNode *node)
+const JsonNode *json_delete_force(const JsonNode *node)
 {
-	if (node != NULL) {
-		json_remove_from_parent(node);	// frees key already.
+	return json_delete((/* non-const */ JsonNode*)node);
+}
 
-		switch (node->tag) {
-			case JSON_STRING:
-			case JSON_LINE_COMMENT:
-			case JSON_BLOCK_COMMENT:
-				free(node->string_);
-				break;
-			case JSON_ARRAY:
-			case JSON_OBJECT:
-			{
-				JsonNode *child, *next;
-				for (child = node->children.head; child != NULL; child = next) {
-					next = child->next;
-					json_delete(child);
-				}
-				break;
+JsonNode *json_delete(JsonNode *node)
+{
+	if (node == NULL)
+		return NULL;
+
+	JsonNode *prev = json_remove_from_parent(node);	// frees key already.
+
+	switch (node->tag) {
+		case JSON_STRING:
+		case JSON_LINE_COMMENT:
+		case JSON_BLOCK_COMMENT:
+			FREE(node->string_);
+			break;
+		case JSON_ARRAY:
+		case JSON_OBJECT:
+		{
+			JsonNode *child;
+			for (child = node->children.head; child != NULL; ) {
+				child = json_delete(child);
 			}
-			default:;
+			break;
 		}
-
-		free(node);
+		default:;
 	}
+
+	FREE(node);
+
+	return prev;
+}
+
+// json_stip_comments() returns the node that caller must use in place of
+// passed root in case root itself was a comment and has been stripped...
+JsonNode *json_strip_comments(JsonNode *root, JsonNode *collector_object)
+{
+	if (root == NULL)
+		return NULL;
+	if (!collector_object || collector_object->tag != JSON_OBJECT)
+		collector_object = NULL;
+
+	if (json_is_container(root)) {
+		static char * const nokeyyet = (char*) -1; //NULL;
+		unsigned int idx = 0;
+		char sidx[32];
+		JsonNode *first = NULL;
+		JsonNode *node = root->children.head, *next;
+		for (;node; node = next) {
+			next = node->next;
+			if (json_is_comment(node)) {
+				json_remove_from_parent(node);
+				if (collector_object) {
+					if (first == NULL)
+						first = node;
+					append_member(collector_object, nokeyyet, node);
+				} else {
+					json_delete(node);
+				}
+			}
+			else {
+				sprintf(sidx, "%u", idx++);
+				char *key = root->tag == JSON_OBJECT ? node->key : sidx;
+				for (;first; first = first->next) {
+					if (first->key == nokeyyet)
+						first->key = STRDUP_OR_EXIT(key);
+				}
+
+				JsonNode *coll = collector_object ? json_mkobject() : NULL;
+				json_strip_comments(node, coll);
+				if (coll && coll->children.head) {
+					json_append_member(collector_object, key, coll);
+				}
+				else {
+					json_delete(coll);
+				}
+				
+			}
+		}
+		// mark dangling comments
+		for (;first; first = next) {
+			next = first->next;
+			if (first->key == nokeyyet)
+				first->key = STRDUP_OR_EXIT(dangling_comment_key);
+		}
+	}
+	else if (json_is_comment(root)) {
+		json_remove_from_parent(root);
+		if (collector_object) {
+			json_append_member(collector_object, "", root);
+		} else {
+			json_delete(root);
+		}
+		return NULL;
+	}
+	return root;
 }
 
 bool json_validate(const char *json, const char **problem)
@@ -455,9 +722,9 @@ bool json_validate(const char *json, const char **problem)
 	return *s == 0;
 }
 
-JsonNode *json_find_element(JsonNode *array_or_object, int index)
+const JsonNode *json_find_element(const JsonNode *array_or_object, int index)
 {
-	JsonNode *element;
+	const JsonNode *element;
 	int i = 0;
 
 	if (array_or_object  == NULL)
@@ -477,26 +744,42 @@ JsonNode *json_find_element(JsonNode *array_or_object, int index)
 	return NULL;
 }
 
-JsonNode *json_find_member(JsonNode *object_or_array, const char *name)
+static const JsonNode *find_member(const JsonNode *object_or_array, const char *name, bool no_comments)
 {
-	JsonNode *member;
+	const JsonNode *member;
 
 	if (object_or_array == NULL)
 		return NULL;
 	if (object_or_array->tag == JSON_OBJECT) {
-		json_foreach(member, object_or_array) {
-			if (strcmp(member->key, name) == 0)
-				return member;
-		}
-	} else if (object_or_array->tag == JSON_ARRAY) {
-		// if name is a pure number (leading/trailing spaces ok) treat it as index
-		char *end = NULL;
-		int i = 0, index = strtol(name, &end, 0);
-		skip_space(&end);
-		if (*end == '\0') {
+		if (no_comments) {
 			json_foreach(member, object_or_array) {
-				if (i++ == index)
+				if (strcmp(member->key, name) == 0)
 					return member;
+			}
+		} else {
+			json_foreach_comment(member, object_or_array) {
+				if (member->key != NULL && strcmp(member->key, name) == 0)
+					return member;
+			}
+		}
+	} else if (object_or_array->tag == JSON_ARRAY
+			&& is_digit(*name) && (name[0] != '0' || !name[1])) {
+		// if name is a pure number (no leading/trailing spaces and no leading zeroes!) treat it as index
+		char *end = NULL;
+		int i = 0, index = strtol(name, &end, 10);	// no 0x prefix allowed.
+		if (*end == '\0') {
+			if (no_comments) {
+				json_foreach(member, object_or_array) {
+					if (i++ == index)
+						return member;
+				}
+			} else {
+				json_foreach_and_all(member, object_or_array) {
+					if (!json_is_comment(member))
+						i++;
+					else if (i == index)
+						return member;
+				}
 			}
 		}
 	}
@@ -504,18 +787,22 @@ JsonNode *json_find_member(JsonNode *object_or_array, const char *name)
 	return NULL;
 }
 
-JsonNode *json_first_child(const JsonNode *node)
+const JsonNode *json_find_member(const JsonNode *object_or_array, const char *name)
 {
-	if (node != NULL && node_is_container(node))
+	return find_member(object_or_array, name, true);
+}
+
+const JsonNode *json_first_child(const JsonNode *node)
+{
+	if (node != NULL && json_is_container(node))
 		return node->children.head;
 	return NULL;
 }
 
 static JsonNode *mknode(JsonTag tag)
 {
-	JsonNode *ret = (JsonNode*) calloc(1, sizeof(JsonNode));
-	if (ret == NULL)
-		out_of_memory();
+	JsonNode *ret = (JsonNode*) MALLOC_OR_EXIT(sizeof(JsonNode));
+	memset(ret, 0, sizeof(*ret));
 	ret->tag = tag;
 	return ret;
 }
@@ -541,7 +828,7 @@ static JsonNode *mkstring(char *s)
 
 JsonNode *json_mkstring(const char *s)
 {
-	return mkstring(json_strdup(s));
+	return mkstring(STRDUP_OR_EXIT(s));
 }
 
 JsonNode *json_mknumber(double n, int decimals)
@@ -594,74 +881,89 @@ static void append_member(JsonNode *object, char *key, JsonNode *value)
 	append_node(object, value);
 }
 
-void json_append_element(JsonNode *array, JsonNode *element)
+JsonNode *json_append_element(JsonNode *array, JsonNode *element)
 {
 	assert(array->tag == JSON_ARRAY);
 	assert(element->parent == NULL);
 
 	append_node(array, element);
+	return element;
 }
 
-void json_prepend_element(JsonNode *array, JsonNode *element)
+JsonNode *json_prepend_element(JsonNode *array, JsonNode *element)
 {
 	assert(array->tag == JSON_ARRAY);
 	assert(element->parent == NULL);
 
 	prepend_node(array, element);
+	return element;
 }
 
-void json_append_member(JsonNode *object, const char *key, JsonNode *value)
+JsonNode *json_append_member(JsonNode *object, const char *key, JsonNode *value)
 {
 	assert(object->tag == JSON_OBJECT);
 	assert(value->parent == NULL);
 
-	append_member(object, json_strdup(key), value);
+	append_member(object, STRDUP_OR_EXIT(key), value);
+	return value;
 }
 
-void json_prepend_member(JsonNode *object, const char *key, JsonNode *value)
+JsonNode *json_prepend_member(JsonNode *object, const char *key, JsonNode *value)
 {
 	assert(object->tag == JSON_OBJECT);
 	assert(value->parent == NULL);
 
-	value->key = json_strdup(key);
+	value->key = STRDUP_OR_EXIT(key);
 	prepend_node(object, value);
+	return value;
 }
 
-void json_append_comment(JsonNode *target, const char *comment)
+JsonNode *json_append_comment(JsonNode *target, const char *comment)
 {
 	if (comment == NULL)
-		return;
-	if (!node_is_container(target)) {
+		return NULL;
+	if (!json_is_container(target)) {
 		assert(!"target not able to hold comments");
-		return;
+		return NULL;
 	}
 	JsonNode *node = mknode(strchr(comment, '\n') ? JSON_BLOCK_COMMENT : JSON_LINE_COMMENT);
-	if (node == NULL)
-		out_of_memory();
-	node->string_ = strdup(comment);
+	node->string_ = STRDUP_OR_EXIT(comment);
 	append_node(target, node);
+	return node;
 }
 
-void json_remove_from_parent(JsonNode *node)
+const JsonNode *json_remove_from_parent_force(const JsonNode *node)
 {
+	return json_remove_from_parent((/* non-const */ JsonNode*) node);
+}
+
+JsonNode *json_remove_from_parent(JsonNode *node)
+{
+	if (node == NULL)
+		return NULL;
+
 	JsonNode *parent = node->parent;
+	if (parent == NULL)
+		return NULL;
 
-	if (parent != NULL) {
-		if (node->prev != NULL)
-			node->prev->next = node->next;
-		else
-			parent->children.head = node->next;
-		if (node->next != NULL)
-			node->next->prev = node->prev;
-		else
-			parent->children.tail = node->prev;
+	JsonNode *prev = node->prev;
 
-		free(node->key);
+	if (node->prev != NULL)
+		node->prev->next = node->next;
+	else
+		parent->children.head = node->next;
+	if (node->next != NULL)
+		node->next->prev = node->prev;
+	else
+		parent->children.tail = node->prev;
 
-		node->parent = NULL;
-		node->prev = node->next = NULL;
-		node->key = NULL;
-	}
+	FREE(node->key);
+
+	node->parent = NULL;
+	node->prev = node->next = NULL;
+	node->key = NULL;
+
+	return prev;
 }
 
 static bool parse_value(const char **sp, const char **se, JsonNode **out)
@@ -731,41 +1033,54 @@ static bool parse_array(const char **sp, const char **se, JsonNode **out)
 {
 	const char *s = *sp;
 	JsonNode *ret = out ? json_mkarray() : NULL;
-	JsonNode *element;
+	JsonNode *element = NULL, *comment = NULL;
+	const char *no_comma_seen = NULL;
 
 	if (se) *se = s;
 	if (*s++ != '[')
 		goto failure;
-	skip_space(&s);
 
 	for (;;) {
-		if (parse_comment(&s, se, out ? &element : NULL) && ret) 
-			append_node(ret, element);
+		skip_space(&s);
+
+		if (!parse_comment(&s, se, out ? &comment : NULL))
+			goto failure;
+		if (comment)
+			append_node(ret, comment);
 
 		if (*s == ']') {
 			s++;
 			goto success;
 		}
 
-		if (!parse_value(sp, se, out ? &element : NULL))
+		if (!parse_value(&s, se, out ? &element : NULL))
 			goto failure;
 		skip_space(&s);
 
 		if (out)
 			json_append_element(ret, element);
 
-		if (parse_comment(&s, se, out ? &element : NULL) && ret) 
-			append_node(ret, element);
+		no_comma_seen = *s != ',' ? s : NULL;
+		if (!no_comma_seen) {
+			s++;
+			skip_space(&s);
+		}
+
+		if (!parse_comment(&s, se, out ? &comment : NULL))
+			goto failure;
+		if (comment)
+			append_node(ret, comment);
 
 		if (*s == ']') {
 			s++;
 			goto success;
 		}
 
-		if (se) *se = s;
-		if (*s++ != ',')
+		if (no_comma_seen) {
+			if (se) *se = no_comma_seen;
 			goto failure;
-		skip_space(&s);
+		}
+		if (se) *se = s;
 	}
 
 success:
@@ -783,54 +1098,65 @@ static bool parse_object(const char **sp, const char **se, JsonNode **out)
 {
 	const char *s = *sp;
 	JsonNode *ret = out ? json_mkobject() : NULL;
-	char *key;
-	JsonNode *value;
+	char *key = NULL;
+	JsonNode *value = NULL, *comment = NULL;
+	const char *no_comma_seen = NULL;
 
 	if (se) *se = s;
 	if (*s++ != '{')
 		goto failure;
-	skip_space(&s);
 
 	for (;;) {
-		if (parse_comment(&s, se, out ? &value : NULL) && ret) 
-			append_node(ret, value);
+		skip_space(&s);
+
+		if (!parse_comment(&s, se, out ? &comment : NULL))
+			goto failure;
+		if (comment)
+			append_node(ret, comment);
 
 		if (*s == '}') {
 			s++;
 			goto success;
 		}
 
-		if (!parse_string(&s, se, out ? &key : NULL))
+		if (!parse_string(&s, se, out ? &key : NULL)) {
 			goto failure;
+		}
 		skip_space(&s);
 
 		if (se) *se = s;
 		if (*s++ != ':')
-			goto failure_free_key;
+			goto failure;
 		skip_space(&s);
-
-		if (parse_comment(&s, se, out ? &value : NULL) && ret) 
-			append_node(ret, value);
 
 		if (!parse_value(&s, se, out ? &value : NULL))
-			goto failure_free_key;
+			goto failure;
 		skip_space(&s);
-
 		if (out)
 			append_member(ret, key, value);
+		key = NULL;	// owned by ret now.
 
-		if (parse_comment(&s, se, out ? &value : NULL) && ret) 
-			append_node(ret, value);
+		no_comma_seen = *s != ',' ? s : NULL;
+		if (!no_comma_seen) {
+			s++;
+			skip_space(&s);
+		}
+
+		if (!parse_comment(&s, se, out ? &comment : NULL))
+			goto failure;
+		if (comment)
+			append_node(ret, comment);
 
 		if (*s == '}') {
 			s++;
 			goto success;
 		}
 
-		if (se) *se = s;
-		if (*s++ != ',')
+		if (no_comma_seen) {
+			if (se) *se = no_comma_seen;
 			goto failure;
-		skip_space(&s);
+		}
+		if (se) *se = s;
 	}
 
 success:
@@ -839,17 +1165,17 @@ success:
 		*out = ret;
 	return true;
 
-failure_free_key:
-	if (out)
-		free(key);
 failure:
-	json_delete(ret);
+	if (out) {
+		FREE(key);
+		json_delete(ret);
+	}
 	return false;
 }
 
 bool parse_comment(const char **sp, const char **se, JsonNode **out)
 {
-	const char *s = *sp, *end, *delim = "";
+	const char *s = *sp, *end, *nested, *delim = "";
 	size_t len = 0;
 	JsonNode *ret = NULL;
 	JsonTag tag = JSON_TAG_UNDEFINED;
@@ -865,7 +1191,16 @@ bool parse_comment(const char **sp, const char **se, JsonNode **out)
 			break;
 		case '*':
 			end = strstr(s, "*/");
-			len = end == NULL ? strlen(s) : end - s;
+			if (end == NULL) {
+				sb_free(&comment);
+				return false;
+			}
+			if ((nested = strstr(s, "/*")) && nested < end) {
+				if (se) *se = nested;
+				sb_free(&comment);
+				return false;
+			}
+			len = end - s;
 			*sp = end + 2; // =strlen("*/")
 			tag = JSON_BLOCK_COMMENT;
 			break;
@@ -890,12 +1225,12 @@ bool parse_comment(const char **sp, const char **se, JsonNode **out)
 	}
 
 	if (tag == JSON_TAG_UNDEFINED || out == NULL) {
+		if (out)
+			*out = NULL;
 		sb_free(&comment);
-		return false;
+		return true;
 	}
 	ret = mknode(tag);
-	if (ret == NULL)
-		out_of_memory();
 	ret->string_ = sb_finish(&comment);
 	*out = ret;
 	return true;
@@ -1035,7 +1370,7 @@ failed:
 bool parse_number(const char **sp, const char **se, double *out, int *decimals)
 {
 	const char *s = *sp;
-	if(decimals != NULL) {
+	if (decimals != NULL) {
 		(*decimals) = 0;
 	}
 
@@ -1063,7 +1398,7 @@ bool parse_number(const char **sp, const char **se, double *out, int *decimals)
 			return false;
 		do {
 			s++;
-			if(decimals != NULL) {
+			if (decimals != NULL) {
 				(*decimals)++;
 			}
 		} while (is_digit(*s));
@@ -1088,7 +1423,7 @@ bool parse_number(const char **sp, const char **se, double *out, int *decimals)
 	return true;
 }
 
-static void emit_value(SB *out, const JsonNode *node)
+static void emit_value(SB *out, const JsonNode *node, const JsonNode *comment)
 {
 	assert(tag_is_valid(node->tag));
 	switch (node->tag) {
@@ -1105,10 +1440,10 @@ static void emit_value(SB *out, const JsonNode *node)
 			emit_number(out, node->number_, node->decimals_);
 			break;
 		case JSON_ARRAY:
-			emit_array(out, node);
+			emit_array(out, node, comment);
 			break;
 		case JSON_OBJECT:
-			emit_object(out, node);
+			emit_object(out, node, comment);
 			break;
 		case JSON_LINE_COMMENT:
 		case JSON_BLOCK_COMMENT:
@@ -1119,7 +1454,7 @@ static void emit_value(SB *out, const JsonNode *node)
 	}
 }
 
-void emit_value_indented(SB *out, const JsonNode *node, const char *space, int indent_level)
+void emit_value_indented(SB *out, const JsonNode *node, const JsonNode *comment, int indent_level)
 {
 	assert(tag_is_valid(node->tag));
 	switch (node->tag) {
@@ -1136,59 +1471,96 @@ void emit_value_indented(SB *out, const JsonNode *node, const char *space, int i
 			emit_number(out, node->number_, node->decimals_);
 			break;
 		case JSON_ARRAY:
-			emit_array_indented(out, node, space, indent_level);
+			emit_array_indented(out, node, comment, indent_level);
 			break;
 		case JSON_OBJECT:
-			emit_object_indented(out, node, space, indent_level);
+			emit_object_indented(out, node, comment, indent_level);
 			break;
 		case JSON_LINE_COMMENT:
 		case JSON_BLOCK_COMMENT:
-			emit_comment_indented(out, node, space, indent_level);
+			emit_comment_indented(out, node);
 			break;
 		default:
 			assert(false);
 	}
 }
 
-static void emit_array_indented(SB *out, const JsonNode *array, const char *space, int indent_level)
+static void emit_array_indented(SB *out, const JsonNode *array, const JsonNode *comment, int indent_level)
 {
-	const JsonNode *element = array->children.head;
-	const JsonNode *tmp = json_first_child(array);
-	int i, x;
+	const JsonNode *element, *dangling_comment;
+	unsigned int idx = 0, indent_next = 0;
+	const char *delimiter = NULL;
+	char sidx[32];
+	bool multiline_format = false;
+	static const int max_elements_per_single_line = 10;
+	int elements_in_single_line = 0;
 
-	if (element == NULL) {
+	// If array has comments or non-empty containers then indent elements
+	// on multi lines. Otherwise use a compact single line format.
+	json_foreach_and_all(element, array) {
+		idx++;
+		if (json_is_container(element) && element->children.head)
+			break;	// element is non-empty container.
+		if (json_is_comment(element))
+			break;	// element is comment.
+		sprintf(sidx, "%u", idx-1);
+		if (find_member(comment, sidx, false))
+			break;	// element has comments.
+	}
+
+	dangling_comment = find_member(comment, dangling_comment_key, false);
+	multiline_format = element || dangling_comment;
+
+	if (idx == 0 && ! dangling_comment) {
 		sb_puts(out, "[]");
 		return;
 	}
 
-	if(tmp && (tmp->tag == JSON_STRING || tmp->tag == JSON_NUMBER)) {
-		sb_puts(out, "[ ");
-		for (; element != NULL; element = element->next) {
-			if (emit_comment_indented(out, element, space, indent_level))
-				continue;
-			emit_value(out, element);
-			sb_puts(out, element->next != NULL ? ", " : "");
+	sb_puts(out, multiline_format ? "[\n" : "[ ");
+	indent_level++;
+	delimiter = "";
+	indent_next = multiline_format ? indent_level : 0;
+	for (idx = 0, element = array->children.head; element != NULL; element = element->next) {
+		sb_puts(out, delimiter); delimiter = "";
+		sb_put_space(out, indent_next);
+
+		if (emit_comment_indented(out, element)) {
+			indent_next = indent_level;
+			continue;
 		}
-		sb_puts(out, " ]");
-	} else {
-		sb_puts(out, "[");
-		x = 0;
-		for (; element != NULL; element = element->next) {
-			if (emit_comment_indented(out, element, space, indent_level))
-				continue;
-			x++;
-			if(x > 1) {
-				for (i = 0; i < indent_level; i++)
-					sb_puts(out, space);
-			}
-			emit_value_indented(out, element, space, indent_level);
-			sb_puts(out, element->next != NULL ? ",\n" : "");
-		}
-		sb_puts(out, "]");
+		sprintf(sidx, "%u", idx++);
+		if (emit_comment_indented(out, find_member(comment, sidx, false)))
+			sb_put_space(out, indent_level);
+		emit_value_indented(out, element, find_member(comment, sidx, true), indent_level);
+
+		sprintf(sidx, "%u", idx);
+		bool wrap = multiline_format;
+		wrap = wrap && ( // current is non-empty container (cannot be comment at this point):
+				(json_is_container(element) && element->children.head)
+			||	// next element exists and is non-empty container or is or has comments:
+				(element->next &&
+				( (json_is_container(element->next) && element->next->children.head)
+				|| json_is_comment(element->next)
+				|| find_member(comment, sidx, true)))
+			);
+		wrap = wrap || ++elements_in_single_line >= max_elements_per_single_line;
+		elements_in_single_line *= !wrap;
+		delimiter   = wrap ? ",\n" : ", ";
+		indent_next = wrap ? indent_level : 0;
 	}
+	indent_level--;
+	if (dangling_comment) {
+		sb_puts(out, delimiter);
+		sb_put_space(out, indent_next);
+		emit_comment_indented(out, dangling_comment);
+		sb_put_space(out, !multiline_format ? indent_level : 0);
+	}
+	sb_puts(out,      multiline_format ? "\n" : " ");
+	sb_put_space(out, multiline_format ? indent_level : 0);
+	sb_putc(out, ']');
 }
 
-static void emit_array(SB *out, const JsonNode *array)
+static void emit_array(SB *out, const JsonNode *array, const JsonNode *comment)
 {
 	const JsonNode *element;
 
@@ -1196,14 +1568,14 @@ static void emit_array(SB *out, const JsonNode *array)
 	json_foreach_and_all(element, array) {
 		if (emit_comment(out, element))
 			continue;
-		emit_value(out, element);
+		emit_value(out, element, comment);
 		if (element->next != NULL)
 			sb_putc(out, ',');
 	}
 	sb_putc(out, ']');
 }
 
-static void emit_object(SB *out, const JsonNode *object)
+static void emit_object(SB *out, const JsonNode *object, const JsonNode *comment)
 {
 	const JsonNode *member;
 
@@ -1213,59 +1585,79 @@ static void emit_object(SB *out, const JsonNode *object)
 			continue;
 		emit_string(out, member->key);
 		sb_putc(out, ':');
-		emit_value(out, member);
+		emit_value(out, member, comment);
 		if (member->next != NULL)
 			sb_putc(out, ',');
 	}
 	sb_putc(out, '}');
 }
 
-static void emit_object_indented(SB *out, const JsonNode *object, const char *space, int indent_level)
+static void emit_object_indented(SB *out, const JsonNode *object, const JsonNode *comment, int indent_level)
 {
 	const JsonNode *member = object->children.head;
-	int i;
+	const JsonNode *dangling_comment = find_member(comment, dangling_comment_key, false);
 
-	if (member == NULL) {
+	if (member == NULL && ! dangling_comment) {
 		sb_puts(out, "{}");
 		return;
 	}
 
 	sb_puts(out, "{\n");
+	indent_level++;
 	for (; member != NULL; member = member->next) {
-		for (i = 0; i < indent_level + 1; i++)
-			sb_puts(out, space);
-		if (emit_comment_indented(out, member, space, indent_level))
+		sb_put_space(out, indent_level);
+		if (emit_comment_indented(out, member))
 			continue;
+		if (emit_comment_indented(out, find_member(comment, member->key, false)))
+			sb_put_space(out, indent_level);
+
 		emit_string(out, member->key);
 		sb_puts(out, ": ");
-		emit_value_indented(out, member, space, indent_level + 1);
+		emit_value_indented(out, member, find_member(comment, member->key, true), indent_level);
 
 		sb_puts(out, member->next != NULL ? ",\n" : "\n");
 	}
-	for (i = 0; i < indent_level; i++)
-		sb_puts(out, space);
+	if (dangling_comment) {
+		sb_put_space(out, indent_level);
+		emit_comment_indented(out, dangling_comment);
+	}
+	indent_level--;
+	sb_put_space(out, indent_level);
 	sb_putc(out, '}');
 }
 
 static bool emit_comment(SB *out, const JsonNode *object)
 {
-	char *str;
+	if (object == NULL)
+		return false;
+	char *str = object->string_;
+	size_t len;
 	switch (object->tag) {
 	case JSON_LINE_COMMENT:
-		sb_puts(out, "//");
-		sb_puts(out, object->string_);
-		sb_puts(out, "\n");
-		break;
+		str += strspn(str, "\n"); // trim leading \n's
+		len = strcspn(str, "\n"); // len until 1st \n or \0
+		if (strspn(str + len, "\n") == strlen(str + len)) {
+			// No more \n's in comment after trimming them on
+			// left and right (and which we simply throw away):
+			sb_puts(out, "//");
+			sb_put(out, object->string_, len);
+			sb_putc(out, '\n');
+			break;
+		}
+		// Comment has new lines that can't be ignored.
+		// Fall thru
 	case JSON_BLOCK_COMMENT:
 		sb_puts(out, "/*");
-		str = object->string_;
 		for (;;) {
+			// Scan comment for "*/" and "escape" them.
 			char *bad = strstr(str, "*/");
 			if (!bad)
 				break;
 			sb_put(out, str, bad - str);
-			sb_puts(out, "* /");
 			str = bad + 2;
+			if (*str == 0)
+				break; // lucky, "*/" was the last thing in comment - re-use it.
+			sb_puts(out, "* /");
 		}
 		sb_puts(out, str);
 		sb_puts(out, "*/");
@@ -1276,7 +1668,7 @@ static bool emit_comment(SB *out, const JsonNode *object)
 	return true;
 }
 
-static bool emit_comment_indented(SB *out, const JsonNode *object, const char *space, int indent_level)
+static bool emit_comment_indented(SB *out, const JsonNode *object)
 {
 	if (!emit_comment(out, object))
 		return false;
@@ -1286,11 +1678,16 @@ static bool emit_comment_indented(SB *out, const JsonNode *object, const char *s
 	return true;
 }
 
-void emit_string(SB *out, const char *str)
+static void emit_string(SB *out, const char *str)
 {
 	bool escape_unicode = false;
 	const char *s = str;
 	char *b;
+
+	if (str == NULL) {
+		sb_puts(out, "null");
+		return;
+	}
 
 	assert(utf8_validate(str));
 
@@ -1429,7 +1826,7 @@ static bool tag_is_valid(unsigned int tag)
 
 static bool number_is_valid(const char *num)
 {
-	return (parse_number(&num, NULL, NULL, NULL) && *num == 0);
+	return parse_number(&num, NULL, NULL, NULL) && *num == 0;
 }
 
 static bool expect_literal(const char **sp, const char *str)
@@ -1575,24 +1972,54 @@ bool json_check(const JsonNode *node, char errmsg[256])
 	#undef problem
 }
 
-int json_find_number(JsonNode *object, const char *name, double *out) {
-	JsonNode *node = json_find_member(object, name);
+bool json_get_number(const JsonNode *object_or_array, const char *name, double *out)
+{
+	const JsonNode *node = json_find_member(object_or_array, name);
 	if (node && node->tag == JSON_NUMBER) {
-		*out = node->number_;
-		return 0;
+		if (out != NULL)
+			*out = node->number_;
+		return true;
 	}
-	return 1;
+	return false;
 }
 
-int json_find_string(JsonNode *object, const char *name, const char **out) {
-	JsonNode *node = json_find_member(object, name);
+bool json_get_string(const JsonNode *object_or_array, const char *name, const char **out)
+{
+	const JsonNode *node = json_find_member(object_or_array, name);
 	if (node && node->tag == JSON_STRING) {
-		*out = node->string_;
-		return 0;
+		if (out != NULL)
+			*out = node->string_;
+		return true;
 	}
-	return 1;
+	return false;
 }
 
-void json_free(void *a) {
-	free(a);
+bool json_convert_type_force(const JsonNode *node, JsonTag new_type)
+{
+	return json_convert_type((/* non-const */ JsonNode*) node, new_type);
+}
+
+bool json_convert_type(JsonNode *node, JsonTag new_type)
+{
+	if (node->tag != JSON_STRING || new_type != JSON_NUMBER)
+		return node->tag == new_type;
+
+	const char *str = node->string_;
+	double num;
+	int decimals = 0;
+	if (!parse_number(&str, NULL, &num, &decimals))
+		return false;
+
+	FREE(node->string_);
+	node->number_ = num;
+	node->decimals_ = decimals;
+	node->tag = JSON_NUMBER;
+
+	return true;
+}
+
+
+void json_free(void *a)
+{
+	FREE(a);
 }

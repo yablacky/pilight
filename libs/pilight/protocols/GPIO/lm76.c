@@ -63,18 +63,13 @@ static pthread_mutexattr_t attr;
 
 static void *thread(void *param) {
 	struct protocol_threads_t *node = (struct protocol_threads_t *)param;
-	struct JsonNode *json = (struct JsonNode *)node->param;
-	struct JsonNode *jid = NULL;
-	struct JsonNode *jchild = NULL;
-	struct settings_t *lm76data = MALLOC(sizeof(struct settings_t));
+	const struct JsonNode *json = (struct JsonNode *)node->param;
+	const struct JsonNode *jid = NULL;
+	const struct JsonNode *jchild = NULL;
+	struct settings_t *lm76data = MALLOC_OR_EXIT(sizeof(struct settings_t));
 	int y = 0, interval = 10, nrloops = 0;
 	const char *stmp = NULL;
 	double itmp = -1, temp_offset = 0;
-
-	if(lm76data == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
 
 	lm76data->nrid = 0;
 	lm76data->id = NULL;
@@ -86,15 +81,8 @@ static void *thread(void *param) {
 		jchild = json_first_child(jid);
 		while(jchild) {
 			if(json_find_string(jchild, "id", &stmp) == 0) {
-				if((lm76data->id = REALLOC(lm76data->id, (sizeof(char *)*(size_t)(lm76data->nrid+1)))) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				if((lm76data->id[lm76data->nrid] = MALLOC(strlen(stmp)+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				strcpy(lm76data->id[lm76data->nrid], stmp);
+				lm76data->id = REALLOC_OR_EXIT(lm76data->id, (sizeof(char *)*(size_t)(lm76data->nrid+1)));
+				lm76data->id[lm76data->nrid] = STRDUP_OR_EXIT(stmp);
 				lm76data->nrid++;
 			}
 			jchild = jchild->next;
@@ -105,10 +93,7 @@ static void *thread(void *param) {
 		interval = (int)round(itmp);
 	json_find_number(json, "temperature-offset", &temp_offset);
 
-	if((lm76data->fd = REALLOC(lm76data->fd, (sizeof(int)*(size_t)(lm76data->nrid+1)))) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	lm76data->fd = REALLOC_OR_EXIT(lm76data->fd, (sizeof(int)*(size_t)(lm76data->nrid+1)));
 	for(y=0;y<lm76data->nrid;y++) {
 		lm76data->fd[y] = wiringXI2CSetup((int)strtol(lm76data->id[y], NULL, 16));
 	}
@@ -167,7 +152,7 @@ static void *thread(void *param) {
 	return (void *)NULL;
 }
 
-static struct threadqueue_t *initDev(JsonNode *jdevice) {
+static struct threadqueue_t *initDev(const JsonNode *jdevice) {
 	if(wiringXSupported() == 0 && wiringXSetup() == 0) {
 		loop = 1;
 

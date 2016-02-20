@@ -304,7 +304,7 @@ static void fillSuperBinCode(int state, int codeseq) {
 }
 
 
-static int createCode(JsonNode *code) { // function to create the raw code
+static int createCode(const JsonNode *code) { // function to create the raw code
 	int id = -1;
 	int unit = -1;
 	int all = 0;

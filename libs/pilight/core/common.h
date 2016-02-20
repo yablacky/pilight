@@ -82,6 +82,17 @@ pid_t findproc(const char *name, const char *args, int loosely);
 int vercmp(const char *val, const char *ref);
 int str_replace(const char *search, const char *replace, char **str);
 int strcicmp(char const *a, char const *b);
-int file_get_contents(char *file, char **content);
+
+// Despite the content read is null-terminated, return the file size or -1
+// on error. Caller must treat other negative return values as unsigned!
+int file_get_contents(const char *file, char **content);
+
+/*
+ * WARNING: In pilight the return value of many functions is vice-versa thinking:
+ * 0 means found, non-null means not found.
+ * This is in particular for the next _find_ calls (json_get_... work as expected):
+ */
+int json_find_number(const JsonNode *object_or_array, const char *name, double *out);
+int json_find_string(const JsonNode *object_or_array, const char *name, const char **out);
 
 #endif

@@ -67,10 +67,10 @@ static unsigned short threads = 0;
 static void *thread(void *param) {
 	struct protocol_threads_t *thread = (struct protocol_threads_t *)param;
 	struct JsonNode *json = (struct JsonNode *)thread->param;
-	struct JsonNode *jid = NULL;
-	struct JsonNode *jchild = NULL;
-	struct JsonNode *jchild1 = NULL;
-	struct JsonNode *node = NULL;
+	const struct JsonNode *jid = NULL;
+	const struct JsonNode *jchild = NULL;
+	const struct JsonNode *jchild1 = NULL;
+	const struct JsonNode *node = NULL;
 	struct settings_t *wnode = MALLOC_OR_EXIT(sizeof(struct settings_t));
 
 	int interval = 86400, ointerval = 86400, event = 0;
@@ -85,10 +85,10 @@ static void *thread(void *param) {
 
 	JsonNode *jdata = NULL;
 	JsonNode *jdata1 = NULL;
-	JsonNode *jobs = NULL;
-	JsonNode *jsun = NULL;
-	JsonNode *jsunr = NULL;
-	JsonNode *jsuns = NULL;
+	const JsonNode *jobs = NULL;
+	const JsonNode *jsun = NULL;
+	const JsonNode *jsunr = NULL;
+	const JsonNode *jsuns = NULL;
 	const char *shour = NULL, *smin = NULL;
 	const char *rhour = NULL, *rmin = NULL;
 
@@ -268,6 +268,7 @@ static void *thread(void *param) {
 															logprintf(LOG_NOTICE, "api.wunderground.com json has no sun_phase key");
 														}
 														json_delete(jdata1);
+														jdata1 = NULL;
 													} else {
 														logprintf(LOG_NOTICE, "api.wunderground.com json could not be parsed");
 													}
@@ -286,6 +287,7 @@ static void *thread(void *param) {
 								logprintf(LOG_NOTICE, "api.wunderground.com json has no current_observation key");
 							}
 							json_delete(jdata);
+							jdata = NULL;
 						} else {
 							logprintf(LOG_NOTICE, "api.wunderground.com json could not be parsed");
 						}
@@ -329,7 +331,7 @@ static void *thread(void *param) {
 	return (void *)NULL;
 }
 
-static struct threadqueue_t *initDev(JsonNode *jdevice) {
+static struct threadqueue_t *initDev(const JsonNode *jdevice) {
 	loop = 1;
 	char *output = json_stringify(jdevice, NULL);
 	JsonNode *json = json_decode(output);
@@ -339,7 +341,7 @@ static struct threadqueue_t *initDev(JsonNode *jdevice) {
 	return threads_register("wunderground", &thread, (void *)node, 0);
 }
 
-static int checkValues(JsonNode *code) {
+static int checkValues(const JsonNode *code) {
 	double interval = INTERVAL;
 
 	json_find_number(code, "poll-interval", &interval);
@@ -352,7 +354,7 @@ static int checkValues(JsonNode *code) {
 	return 0;
 }
 
-static int createCode(JsonNode *code) {
+static int createCode(const JsonNode *code) {
 	struct settings_t *wtmp = settings;
 	const char *country = NULL;
 	const char *location = NULL;

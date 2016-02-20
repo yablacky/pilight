@@ -53,9 +53,9 @@ static pthread_mutexattr_t attr;
 
 static void *ds18b20Parse(void *param) {
 	struct protocol_threads_t *node = (struct protocol_threads_t *)param;
-	struct JsonNode *json = (struct JsonNode *)node->param;
-	struct JsonNode *jid = NULL;
-	struct JsonNode *jchild = NULL;
+	const struct JsonNode *json = (struct JsonNode *)node->param;
+	const struct JsonNode *jid = NULL;
+	const struct JsonNode *jchild = NULL;
 
 #ifndef _WIN32
 	struct dirent *file = NULL;
@@ -80,15 +80,8 @@ static void *ds18b20Parse(void *param) {
 		jchild = json_first_child(jid);
 		while(jchild) {
 			if(json_find_string(jchild, "id", &stmp) == 0) {
-				if((id = REALLOC(id, (sizeof(char *)*(size_t)(nrid+1)))) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				if((id[nrid] = MALLOC(strlen(stmp)+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				strcpy(id[nrid], stmp);
+				id = REALLOC_OR_EXIT(id, (sizeof(char *)*(size_t)(nrid+1)));
+				id[nrid] = STRDUP_OR_EXIT(stmp);
 				nrid++;
 			}
 			jchild = jchild->next;
@@ -104,10 +97,7 @@ static void *ds18b20Parse(void *param) {
 #ifndef _WIN32
 			pthread_mutex_lock(&lock);
 			for(y=0;y<nrid;y++) {
-				if((ds18b20_sensor = REALLOC(ds18b20_sensor, strlen(source_path)+strlen(id[y])+5)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				ds18b20_sensor = REALLOC_OR_EXIT(ds18b20_sensor, strlen(source_path)+strlen(id[y])+5);
 				sprintf(ds18b20_sensor, "%s28-%s/", source_path, id[y]);
 				if((d = opendir(ds18b20_sensor))) {
 					while((file = readdir(d)) != NULL) {
@@ -127,11 +117,7 @@ static void *ds18b20Parse(void *param) {
 								fstat(fileno(fp), &st);
 								bytes = (size_t)st.st_size;
 
-								if((content = REALLOC(content, bytes+1)) == NULL) {
-									fprintf(stderr, "out of memory\n");
-									fclose(fp);
-									break;
-								}
+								content = REALLOC_OR_EXIT(content, bytes+1);
 								memset(content, '\0', bytes+1);
 
 								if(fread(content, sizeof(char), bytes, fp) == -1) {
@@ -200,7 +186,7 @@ static void *ds18b20Parse(void *param) {
 	return (void *)NULL;
 }
 
-static struct threadqueue_t *initDev(JsonNode *jdevice) {
+static struct threadqueue_t *initDev(const JsonNode *jdevice) {
 	loop = 1;
 	char *output = json_stringify(jdevice, NULL);
 	JsonNode *json = json_decode(output);

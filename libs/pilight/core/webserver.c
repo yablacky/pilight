@@ -82,8 +82,8 @@ typedef struct webqueue_t {
 	struct webqueue_t *next;
 } webqueue_t;
 
-static struct webqueue_t *webqueue;
-static struct webqueue_t *webqueue_head;
+static struct webqueue_t *webqueue; // head.
+static struct webqueue_t *webqueue_tail;
 
 static pthread_mutex_t webqueue_lock;
 static pthread_cond_t webqueue_signal;
@@ -104,6 +104,7 @@ int webserver_gc(void) {
 		FREE(tmp);
 		webqueue_number--;
 	}
+	webqueue = webqueue_tail = NULL;
 
 	webserver_loop = 0;
 
@@ -142,7 +143,7 @@ struct filehandler_t {
 	unsigned short free;
 };
 
-void webserver_create_header(unsigned char **p, const char *message, char *mimetype, unsigned int len) {
+void webserver_create_header(unsigned char **p, const char *message, const char *mimetype, unsigned int len) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	*p += sprintf((char *)*p,
@@ -158,7 +159,7 @@ void webserver_create_header(unsigned char **p, const char *message, char *mimet
 static void webserver_create_404(const char *in, unsigned char **p) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	char mimetype[] = "text/html";
+	const char mimetype[] = "text/html";
 	webserver_create_header(p, "404 Not Found", mimetype, (unsigned int)(202+strlen((const char *)in)));
 	*p += sprintf((char *)*p, "<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">\x0d\x0a"
 		"<html><head>\x0d\x0a"
@@ -297,7 +298,7 @@ static int webserver_parse_rest(struct mg_connection *conn) {
 					}
 				}
 			} else if(type == 2) {
-				struct JsonNode *value = NULL;
+				const struct JsonNode *value = NULL;
 				const char *type = NULL;
 				const char *key = NULL;
 				const char *sval = NULL;
@@ -774,10 +775,10 @@ static void webserver_queue(char *message) {
 
 		if(webqueue_number == 0) {
 			webqueue = wnode;
-			webqueue_head = wnode;
+			webqueue_tail = wnode;
 		} else {
-			webqueue_head->next = wnode;
-			webqueue_head = wnode;
+			webqueue_tail->next = wnode;
+			webqueue_tail = wnode;
 		}
 
 		webqueue_number++;

@@ -69,9 +69,9 @@ static uint8_t sizecvt(const int read_value) {
 
 static void *dht11Parse(void *param) {
 	struct protocol_threads_t *node = (struct protocol_threads_t *)param;
-	struct JsonNode *json = (struct JsonNode *)node->param;
-	struct JsonNode *jid = NULL;
-	struct JsonNode *jchild = NULL;
+	const struct JsonNode *json = (struct JsonNode *)node->param;
+	const struct JsonNode *jid = NULL;
+	const struct JsonNode *jchild = NULL;
 	int *id = 0;
 	int nrid = 0, y = 0, interval = 10, nrloops = 0, x = 0;
 	double temp_offset = 0.0, humi_offset = 0.0, itmp = 0.0;
@@ -190,7 +190,7 @@ static void *dht11Parse(void *param) {
 	return (void *)NULL;
 }
 
-static struct threadqueue_t *initDev(JsonNode *jdevice) {
+static struct threadqueue_t *initDev(const JsonNode *jdevice) {
 	if(wiringXSupported() == 0 && wiringXSetup() == 0) {
 		loop = 1;
 		char *output = json_stringify(jdevice, NULL);
@@ -213,9 +213,9 @@ static void threadGC(void) {
 	protocol_thread_free(dht11);
 }
 
-static int checkValues(JsonNode *code) {
-	struct JsonNode *jid = NULL;
-	struct JsonNode *jchild = NULL;
+static int checkValues(const JsonNode *code) {
+	const struct JsonNode *jid = NULL;
+	const struct JsonNode *jchild = NULL;
 	double itmp = -1;
 
 	/* Validate GPIO number */

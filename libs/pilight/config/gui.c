@@ -100,9 +100,6 @@ int gui_gc(void) {
 		gui_elements = gui_elements->next;
 		FREE(dtmp);
 	}
-	if(gui_elements != NULL) {
-		FREE(gui_elements);
-	}
 
 	logprintf(LOG_DEBUG, "garbage collected config gui library");
 
@@ -133,12 +130,11 @@ struct JsonNode *gui_sync(int level, const char *media) {
 			json_append_member(jelements, "order", json_mknumber(i, 0));
 		}
 
-		tmp_settings = tmp_gui->settings;
-		match = 0;
+		tmp_settings = tmp_gui->settings; match = 0;
 		while(tmp_settings) {
 			tmp_values = tmp_settings->values;
 			if(strcmp(tmp_settings->name, "group") == 0 || strcmp(tmp_settings->name, "media") == 0) {
-				if(!(jarray = json_find_member(jelements, tmp_settings->name))) {
+				if(!(jarray = (JsonNode*) json_find_member(jelements, tmp_settings->name))) {
 					jarray = json_mkarray();
 					json_append_member(jelements, tmp_settings->name, jarray);
 				}
@@ -178,7 +174,7 @@ struct JsonNode *gui_sync(int level, const char *media) {
 			tmp_settings = tmp_settings->next;
 		}
 
-		if(!(jarray = json_find_member(jelements, "media"))) {
+		if(!(jarray = (JsonNode*) json_find_member(jelements, "media"))) {
 			if(level == 0) {
 				jarray = json_mkarray();
 				json_append_element(jarray, json_mkstring("all"));
@@ -217,14 +213,12 @@ struct JsonNode *gui_sync(int level, const char *media) {
 }
 
 /* Save the gui settings to the element struct */
-static void gui_save_setting(int i, JsonNode *jsetting, struct gui_elements_t *element) {
+static void gui_save_setting(int i, const JsonNode *jsetting, struct gui_elements_t *element) {
 	/* Struct to store the values */
 	struct gui_values_t *vnode = NULL;
 	struct gui_settings_t *snode = NULL;
-	struct gui_settings_t *tmp_settings = NULL;
-	struct gui_values_t *tmp_values = NULL;
 	/* Temporary JSON pointer */
-	struct JsonNode *jtmp;
+	const const struct JsonNode *jtmp;
 
 	/* Variable holder for casting settings */
 	const char *stmp = NULL;
@@ -233,148 +227,71 @@ static void gui_save_setting(int i, JsonNode *jsetting, struct gui_elements_t *e
 	if(jsetting->tag == JSON_ARRAY) {
 		if(strcmp(jsetting->key, "group") == 0 || strcmp(jsetting->key, "media") == 0) {
 			/* Loop through the values of this values array */
-			snode = MALLOC_OR_EXIT(sizeof(struct gui_settings_t));
-			snode->name = STRDUP_OR_EXIT(jsetting->key);
-			snode->values = NULL;
-			snode->next = NULL;
+			CONFIG_ALLOC_NAMED_NODE(snode, jsetting->key);
+
 			json_foreach(jtmp, jsetting) {
 				if(jtmp->tag == JSON_STRING) {
-					vnode = MALLOC_OR_EXIT(sizeof(struct gui_values_t));
-					vnode->name = NULL;
-					vnode->next = NULL;
+					CONFIG_ALLOC_UNNAMED_NODE(vnode);
 					vnode->string_ = STRDUP_OR_EXIT(jtmp->string_);
 					vnode->type = JSON_STRING;
+					CONFIG_APPEND_NODE_TO_LIST(vnode, snode->values);
 				} else if(jtmp->tag == JSON_NUMBER) {
-					vnode = MALLOC_OR_EXIT(sizeof(struct gui_values_t));
-					vnode->name = NULL;
-					vnode->next = NULL;
+					CONFIG_ALLOC_UNNAMED_NODE(vnode);
 					vnode->number_ = jtmp->number_;
 					vnode->decimals = jtmp->decimals_;
 					vnode->type = JSON_NUMBER;
-				} else {
-					continue;
+					CONFIG_APPEND_NODE_TO_LIST(vnode, snode->values);
 				}
+			}
 
-				tmp_values = snode->values;
-				if(tmp_values) {
-					while(tmp_values->next != NULL) {
-						tmp_values = tmp_values->next;
-					}
-					tmp_values->next = vnode;
-				} else {
-					vnode->next = snode->values;
-					snode->values = vnode;
-				}
-			}
-			tmp_settings = element->settings;
-			if(tmp_settings) {
-				while(tmp_settings->next != NULL) {
-					tmp_settings = tmp_settings->next;
-				}
-				tmp_settings->next = snode;
-			} else {
-				snode->next = element->settings;
-				element->settings = snode;
-			}
+			CONFIG_APPEND_NODE_TO_LIST(snode, element->settings);
 		}
 	} else if(jsetting->tag == JSON_OBJECT) {
-		snode = MALLOC_OR_EXIT(sizeof(struct gui_settings_t));
-		snode->name = STRDUP_OR_EXIT(jsetting->key);
-		snode->values = NULL;
-		snode->next = NULL;
+		CONFIG_ALLOC_NAMED_NODE(snode, jsetting->key);
 
 		json_foreach(jtmp, jsetting) {
 			if(jtmp->tag == JSON_STRING) {
-				vnode = MALLOC_OR_EXIT(sizeof(struct gui_values_t));
-				vnode->name = STRDUP_OR_EXIT(jtmp->key);
+				CONFIG_ALLOC_NAMED_NODE(vnode, jtmp->key);
 				vnode->string_ = STRDUP_OR_EXIT(jtmp->string_);
 				vnode->type = JSON_STRING;
-				vnode->next = NULL;
+				CONFIG_APPEND_NODE_TO_LIST(vnode, snode->values);
 			} else if(jtmp->tag == JSON_NUMBER) {
-				vnode = MALLOC_OR_EXIT(sizeof(struct gui_values_t));
-				vnode->name = STRDUP_OR_EXIT(jtmp->key);
+				CONFIG_ALLOC_NAMED_NODE(vnode, jtmp->key);
 				vnode->number_ = jtmp->number_;
 				vnode->decimals = jtmp->decimals_;
 				vnode->type = JSON_NUMBER;
-				vnode->next = NULL;
-			} else {
-				continue;
-			}
-
-			tmp_values = snode->values;
-			if(tmp_values) {
-				while(tmp_values->next != NULL) {
-					tmp_values = tmp_values->next;
-				}
-				tmp_values->next = vnode;
-			} else {
-				vnode->next = snode->values;
-				snode->values = vnode;
+				CONFIG_APPEND_NODE_TO_LIST(vnode, snode->values);
 			}
 		}
 
-		tmp_settings = element->settings;
-		if(tmp_settings) {
-			while(tmp_settings->next != NULL) {
-				tmp_settings = tmp_settings->next;
-			}
-			tmp_settings->next = snode;
-		} else {
-			snode->next = element->settings;
-			element->settings = snode;
-		}
+		CONFIG_APPEND_NODE_TO_LIST(snode, element->settings);
 
 	} else {
 		/* New element settings node */
-		snode = MALLOC_OR_EXIT(sizeof(struct gui_settings_t));
-		snode->name = STRDUP_OR_EXIT(jsetting->key);
-		snode->values = NULL;
-		snode->next = NULL;
+		CONFIG_ALLOC_NAMED_NODE(snode, jsetting->key);
 
-		vnode = NULL;
 		/* Cast and store the new value */
 		if(jsetting->tag == JSON_STRING && json_find_string(jsetting->parent, jsetting->key, &stmp) == 0) {
-			vnode = MALLOC_OR_EXIT(sizeof(struct gui_values_t));
+			CONFIG_ALLOC_UNNAMED_NODE(vnode);
 			vnode->string_ = STRDUP_OR_EXIT(stmp);
-			vnode->name = NULL;
 			vnode->type = JSON_STRING;
+			CONFIG_APPEND_NODE_TO_LIST(vnode, snode->values);
 		} else if(jsetting->tag == JSON_NUMBER &&
 		         (jtmp = json_find_member(jsetting->parent, jsetting->key)) != NULL &&
 				  jtmp->tag == JSON_NUMBER) {
-			vnode = MALLOC_OR_EXIT(sizeof(struct gui_values_t));
-			vnode->name = NULL;
+			CONFIG_ALLOC_UNNAMED_NODE(vnode);
 			vnode->number_ = jtmp->number_;
 			vnode->decimals = jtmp->decimals_;
 			vnode->type = JSON_NUMBER;
-		}
-		if(vnode) {
-			tmp_values = snode->values;
-			if(tmp_values) {
-				while(tmp_values->next != NULL) {
-					tmp_values = tmp_values->next;
-				}
-				tmp_values->next = vnode;
-			} else {
-				vnode->next = snode->values;
-				snode->values = vnode;
-			}
+			CONFIG_APPEND_NODE_TO_LIST(vnode, snode->values);
 		}
 
-		tmp_settings = element->settings;
-		if(tmp_settings) {
-			while(tmp_settings->next != NULL) {
-				tmp_settings = tmp_settings->next;
-			}
-			tmp_settings->next = snode;
-		} else {
-			snode->next = element->settings;
-			element->settings = snode;
-		}
+		CONFIG_APPEND_NODE_TO_LIST(snode, element->settings);
 	}
 }
 
-int gui_parse_elements(struct JsonNode *root, struct gui_elements_t *parent, int i) {
-	struct JsonNode *jsettings = NULL;
+int gui_parse_elements(const struct JsonNode *root, struct gui_elements_t *parent, int i) {
+	const struct JsonNode *jsettings = NULL;
 	unsigned int nrgroup = 0, nrmedia = 0, nrname = 0, nrorder = 0;
 	int valid_setting = 0;
 	int have_error = 0;
@@ -416,7 +333,7 @@ int gui_parse_elements(struct JsonNode *root, struct gui_elements_t *parent, int
 				have_error = 1;
 				goto clear;
 			} else {
-				struct JsonNode *jvalues = NULL;
+				const struct JsonNode *jvalues = NULL;
 				unsigned int nrvalues = 0;
 				unsigned int hasall = 0;
 				json_foreach(jvalues, jsettings) {
@@ -493,15 +410,14 @@ clear:
 	return have_error;
 }
 
-int gui_read(struct JsonNode *root) {
+int gui_read(const struct JsonNode *root) {
 	struct gui_elements_t *dnode = NULL;
 	struct gui_elements_t *tmp_gui = NULL;
-	struct JsonNode *jelements = NULL;
+	const struct JsonNode *jelements = NULL;
 
 	int i = 0, have_error = 0;
 
-	jelements = json_first_child(root);
-	while(jelements) {
+	json_foreach(jelements, root) {
 		i++;
 		if(jelements->tag != JSON_OBJECT) {
 			logprintf(LOG_ERR, "config gui element #%d \"%s\", invalid field(s)", i, jelements->key);
@@ -518,7 +434,8 @@ int gui_read(struct JsonNode *root) {
 				tmp_gui = tmp_gui->next;
 			}
 
-			dnode = MALLOC_OR_EXIT(sizeof(struct gui_elements_t));
+			CONFIG_ALLOC_UNNAMED_NODE(dnode);
+
 			dnode->settings = NULL;
 			dnode->next = NULL;
 			dnode->device = NULL;
@@ -535,22 +452,12 @@ int gui_read(struct JsonNode *root) {
 				have_error = 1;
 			}
 
-			tmp_gui = gui_elements;
-			if(tmp_gui) {
-				while(tmp_gui->next != NULL) {
-					tmp_gui = tmp_gui->next;
-				}
-				tmp_gui->next = dnode;
-			} else {
-				dnode->next = gui_elements;
-				gui_elements = dnode;
-			}
+			CONFIG_APPEND_NODE_TO_LIST(dnode, gui_elements);
 
 			if(have_error) {
 				goto clear;
 			}
 		}
-		jelements = jelements->next;
 	}
 clear:
 	return have_error;

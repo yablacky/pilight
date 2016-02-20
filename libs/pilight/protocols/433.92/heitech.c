@@ -147,7 +147,7 @@ static void createFooter(void) {
 	heitech->raw[48]=(AVG_PULSE_LENGTH);
 	heitech->raw[49]=(PULSE_DIV*AVG_PULSE_LENGTH);
 }
-static int createCode(JsonNode *code) {
+static int createCode(const JsonNode *code) {
 	int systemcode = -1;
 	int unitcode = -1;
 	int state = -1;

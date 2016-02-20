@@ -80,30 +80,26 @@ void event_action_init(void) {
 	void (*compatibility)(struct module_t *module);
 	char path[PATH_MAX];
 	struct module_t module;
-	char pilight_version[strlen(PILIGHT_VERSION)+1];
-	char pilight_commit[3];
+	const char pilight_version[] = PILIGHT_VERSION, *stmp = NULL;
+	char pilight_commit[3] = { 0 };
 	char *action_root = NULL;
-	int check1 = 0, check2 = 0, valid = 1, action_root_free = 0;
-	strcpy(pilight_version, PILIGHT_VERSION);
+	int check1 = 0, check2 = 0, valid = 1;
 
 	struct dirent *file = NULL;
 	DIR *d = NULL;
 	struct stat s;
 
-	memset(pilight_commit, '\0', 3);
-
-	if(settings_find_string("actions-root", &action_root) != 0) {
+	if(settings_find_string("actions-root", &stmp) != 0) {
 		/* If no action root was set, use the default action root */
-		if((action_root = MALLOC(strlen(ACTION_ROOT)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(action_root, ACTION_ROOT);
-		action_root_free = 1;
+		stmp = ACTION_ROOT;
 	}
-	size_t len = strlen(action_root);
-	if(action_root[len-1] != '/') {
-		strcat(action_root, "/");
+	size_t len = strlen(stmp);
+	if(stmp[len-1] == '/') {
+		action_root = STRDUP_OR_EXIT(stmp);
+	} else {
+		char b[len + 2];
+		strcpy(b, stmp); strcat(b, "/");
+		action_root = STRDUP_OR_EXIT(b);
 	}
 
 	if((d = opendir(action_root))) {
@@ -122,19 +118,15 @@ void event_action_init(void) {
 							if(init && compatibility) {
 								compatibility(&module);
 								if(module.name != NULL && module.version != NULL && module.reqversion != NULL) {
-									char ver[strlen(module.reqversion)+1];
-									strcpy(ver, module.reqversion);
 
-									if((check1 = vercmp(ver, pilight_version)) > 0) {
+									if((check1 = vercmp(module.reqversion, pilight_version)) > 0) {
 										valid = 0;
 									}
 
 									if(check1 == 0 && module.reqcommit != NULL) {
-										char com[strlen(module.reqcommit)+1];
-										strcpy(com, module.reqcommit);
 										sscanf(HASH, "v%*[0-9].%*[0-9]-%[0-9]-%*[0-9a-zA-Z\n\r]", pilight_commit);
 
-										if(strlen(pilight_commit) > 0 && (check2 = vercmp(com, pilight_commit)) > 0) {
+										if(strlen(pilight_commit) > 0 && (check2 = vercmp(module.reqcommit, pilight_commit)) > 0) {
 											valid = 0;
 										}
 									}
@@ -162,32 +154,19 @@ void event_action_init(void) {
 		}
 		closedir(d);
 	}
-	if(action_root_free) {
-		FREE(action_root);
-	}
+	FREE(action_root);
 #endif
 }
 
 void event_action_register(struct event_actions_t **act, const char *name) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	if((*act = MALLOC(sizeof(struct event_actions_t))) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	if(((*act)->name = MALLOC(strlen(name)+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy((*act)->name, name);
-
+	CONFIG_ALLOC_NAMED_NODE(*act, name);
 	(*act)->options = NULL;
 	(*act)->run = NULL;
 	(*act)->nrthreads = 0;
 	(*act)->checkArguments = NULL;
-
-	(*act)->next = event_actions;
-	event_actions = (*act);
+	CONFIG_PREPEND_NODE_TO_LIST(*act, event_actions);
 }
 
 int event_action_gc(void) {
@@ -215,10 +194,7 @@ int event_action_gc(void) {
 void event_action_thread_init(struct devices_t *dev) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	if((dev->action_thread = MALLOC(sizeof(struct event_action_thread_t))) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	dev->action_thread = MALLOC_OR_EXIT(sizeof(struct event_action_thread_t));
 
 	pthread_mutexattr_init(&dev->action_thread->attr);
 	pthread_mutexattr_settype(&dev->action_thread->attr, PTHREAD_MUTEX_RECURSIVE);
@@ -267,7 +243,7 @@ void event_action_thread_start(struct devices_t *dev, char *name, void *(*func)(
 	thread->obj = obj;
 	thread->device = dev;
 	thread->loop = 1;
-	thread->action = REALLOC(thread->action, strlen(name)+1);
+	thread->action = REALLOC_OR_EXIT(thread->action, strlen(name)+1);
 	strcpy(thread->action, name);
 
 	thread->initialized = 1;

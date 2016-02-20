@@ -63,6 +63,6 @@
 #ifndef _LIBPROC_H_
 #define _LIBPROC_H_
 
-int ping(char *addr);
+int ping(const char *addr);
 
 #endif

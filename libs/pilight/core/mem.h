@@ -41,4 +41,15 @@ void _free(void *a, const char *file, int line);
 #define CALLOC(a, b) calloc(a, b)
 #define FREE(a) free((void *)(a)),(a)=NULL
 
+void *_malloc_or_exit(unsigned long a, const char *file, int line);
+void *_realloc_or_exit(void *a, unsigned long b, const char *file, int line);
+
+#define MALLOC_OR_EXIT(a)	_malloc_or_exit(a, __FILE__, __LINE__)
+#define REALLOC_OR_EXIT(a, b)	_realloc_or_exit(a, b, __FILE__, __LINE__)
+
+/* For all strdup's : strdup(NULL) will return NULL. */
+char *pilight_strdup(const char *s);
+char *_pilight_strdup_or_exit(const char *s, const char *file, int line);
+#define STRDUP_OR_EXIT(a)	_pilight_strdup_or_exit(a, __FILE__, __LINE__)
+
 #endif

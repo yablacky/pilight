@@ -53,20 +53,12 @@ int main(int argc, char **argv) {
 #endif
 
 	struct options_t *options = NULL;
-	char *configtmp = MALLOC(strlen(CONFIG_FILE)+1);
+	char *configtmp = STRDUP_OR_EXIT(CONFIG_FILE);
 	char *args = NULL;
 	char *fwfile = NULL;
-	char comport[255];
+	char comport[255] = { 0 };
 
-	memset(&comport, '\0', 255);
-
-	strcpy(configtmp, CONFIG_FILE);
-
-	if((progname = MALLOC(15)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(progname, "pilight-flash");
+	progname = STRDUP_OR_EXIT("pilight-flash");
 
 	options_add(&options, 'H', "help", OPTION_NO_VALUE, 0, JSON_NULL, NULL, NULL);
 	options_add(&options, 'V', "version", OPTION_NO_VALUE, 0, JSON_NULL, NULL, NULL);

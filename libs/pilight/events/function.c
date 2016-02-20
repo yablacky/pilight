@@ -33,6 +33,7 @@
 
 #include "../core/pilight.h"
 #include "../core/common.h"
+#include "../core/config.h"
 #include "../core/options.h"
 #include "../core/dso.h"
 #include "../core/log.h"
@@ -42,7 +43,7 @@
 #include "functions/function_header.h"
 
 #ifndef _WIN32
-void event_function_remove(char *name) {
+void event_function_remove(const char *name) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	struct event_functions_t *currP, *prevP;
@@ -79,30 +80,26 @@ void event_function_init(void) {
 	void (*compatibility)(struct module_t *module);
 	char path[PATH_MAX];
 	struct module_t module;
-	char pilight_version[strlen(PILIGHT_VERSION)+1];
-	char pilight_commit[3];
-	char *functions_root = NULL;
-	int check1 = 0, check2 = 0, valid = 1, function_root_free = 0;
-	strcpy(pilight_version, PILIGHT_VERSION);
+	const char pilight_version[] = PILIGHT_VERSION, *stmp = NULL;
+	char pilight_commit[3] = { 0 };
+	const char *functions_root = NULL;
+	int check1 = 0, check2 = 0, valid = 1;
 
 	struct dirent *file = NULL;
 	DIR *d = NULL;
 	struct stat s;
 
-	memset(pilight_commit, '\0', 3);
-
-	if(settings_find_string("functions-root", &functions_root) != 0) {
+	if(settings_find_string("functions-root", &stmp) != 0) {
 		/* If no function root was set, use the default function root */
-		if((functions_root = MALLOC(strlen(FUNCTION_ROOT)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(functions_root, FUNCTION_ROOT);
-		function_root_free = 1;
+		stmp = FUNCTION_ROOT;
 	}
-	size_t len = strlen(functions_root);
-	if(functions_root[len-1] != '/') {
-		strcat(functions_root, "/");
+	size_t len = strlen(stmp);
+	if(stmp[len-1] == '/') {
+		functions_root = STRDUP_OR_EXIT(stmp);
+	} else {
+		char b[len + 2];
+		strcpy(b, stmp); strcat(b, "/");
+		functions_root = STRDUP_OR_EXIT(b);
 	}
 
 	if((d = opendir(functions_root))) {
@@ -121,26 +118,20 @@ void event_function_init(void) {
 							if(init && compatibility) {
 								compatibility(&module);
 								if(module.name != NULL && module.version != NULL && module.reqversion != NULL) {
-									char ver[strlen(module.reqversion)+1];
-									strcpy(ver, module.reqversion);
 
-									if((check1 = vercmp(ver, pilight_version)) > 0) {
+									if((check1 = vercmp(module.reqversion, pilight_version)) > 0) {
 										valid = 0;
 									}
 
 									if(check1 == 0 && module.reqcommit != NULL) {
-										char com[strlen(module.reqcommit)+1];
-										strcpy(com, module.reqcommit);
 										sscanf(HASH, "v%*[0-9].%*[0-9]-%[0-9]-%*[0-9a-zA-Z\n\r]", pilight_commit);
 
-										if(strlen(pilight_commit) > 0 && (check2 = vercmp(com, pilight_commit)) > 0) {
+										if(strlen(pilight_commit) > 0 && (check2 = vercmp(module.reqcommit, pilight_commit)) > 0) {
 											valid = 0;
 										}
 									}
 									if(valid == 1) {
-										char tmp[strlen(module.name)+1];
-										strcpy(tmp, module.name);
-										event_function_remove(tmp);
+										event_function_remove(module.name);
 										init();
 										logprintf(LOG_DEBUG, "loaded event function %s v%s", file->d_name, module.version);
 									} else {
@@ -161,28 +152,16 @@ void event_function_init(void) {
 		}
 		closedir(d);
 	}
-	if(function_root_free == 1) {
-		FREE(functions_root);
-	}
+	FREE(functions_root);
 #endif
 }
 
 void event_function_register(struct event_functions_t **act, const char *name) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	if((*act = MALLOC(sizeof(struct event_functions_t))) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	if(((*act)->name = MALLOC(strlen(name)+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy((*act)->name, name);
-
+	CONFIG_ALLOC_NAMED_NODE(*act, name);
 	(*act)->run = NULL;
-	(*act)->next = event_functions;
-	event_functions = (*act);
+	CONFIG_PREPEND_NODE_TO_LIST(*act, event_functions);
 }
 
 int event_function_gc(void) {
@@ -195,9 +174,7 @@ int event_function_gc(void) {
 		event_functions = event_functions->next;
 		FREE(tmp_function);
 	}
-	if(event_functions != NULL) {
-		FREE(event_functions);
-	}
+	FREE(event_functions);
 
 	logprintf(LOG_DEBUG, "garbage collected event function library");
 	return 0;

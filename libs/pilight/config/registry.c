@@ -38,8 +38,7 @@ static int registry_get_value_recursive(struct JsonNode *root, const char *key, 
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	char *sub = strstr(key, ".");
-	char *buff = MALLOC(strlen(key)+1);
-	strcpy(buff, key);
+	char *buff = STRDUP_OR_EXIT(key);
 	if(sub != NULL) {
 		int pos = sub-key;
 		buff[pos] = '\0';
@@ -73,8 +72,7 @@ static int registry_set_value_recursive(struct JsonNode *root, const char *key, 
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	char *sub = strstr(key, ".");
-	char *buff = MALLOC(strlen(key)+1);
-	strcpy(buff, key);
+	char *buff = STRDUP_OR_EXIT(key);
 	if(sub != NULL) {
 		int pos = sub-key;
 		buff[pos] = '\0';
@@ -86,7 +84,7 @@ static int registry_set_value_recursive(struct JsonNode *root, const char *key, 
 				member->number_ = *(double *)value;
 				member->decimals_ = decimals;
 			} else if(type == JSON_STRING) {
-				member->string_ = REALLOC(member->string_, strlen(value)+1);
+				member->string_ = REALLOC_OR_EXIT(member->string_, strlen(value)+1);
 				strcpy(member->string_, (char *)value);
 			}
 			FREE(buff);
@@ -138,8 +136,7 @@ static int registry_remove_value_recursive(struct JsonNode *root, const char *ke
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	char *sub = strstr(key, ".");
-	char *buff = MALLOC(strlen(key)+1);
-	strcpy(buff, key);
+	char *buff = STRDUP_OR_EXIT(key);
 	if(sub != NULL) {
 		int pos = sub-key;
 		buff[pos] = '\0';
@@ -167,7 +164,7 @@ static int registry_remove_value_recursive(struct JsonNode *root, const char *ke
 	return -1;
 }
 
-int registry_get_string(const char *key, char **value) {
+int registry_get_string(const char *key, const char **value) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	if(registry == NULL) {
@@ -192,7 +189,7 @@ int registry_get_number(const char *key, double *value, int *decimals) {
 	return ret;
 }
 
-int registry_set_string(const char *key, char *value) {
+int registry_set_string(const char *key, const char *value) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	if(registry == NULL) {
@@ -244,9 +241,7 @@ static JsonNode *registry_sync(int level, const char *display) {
 }
 
 int registry_gc(void) {
-	if(registry != NULL) {
-		json_delete(registry);
-	}
+	json_delete(registry);
 	registry = NULL;
 	logprintf(LOG_DEBUG, "garbage collected config registry library");
 	return 1;

@@ -177,7 +177,7 @@ static int createCode(struct JsonNode *code) {
 	int unit = -1;
 	int state = -1;
 	double itmp = -1;
-	char *stmp;
+	const char *stmp;
 
 	strcpy(id, "-1");
 

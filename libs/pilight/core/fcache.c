@@ -103,18 +103,11 @@ int fcache_add(char *filename) {
 		logprintf(LOG_NOTICE, "failed to open %s", filename);
 		return -1;
 	} else {
-		struct fcache_t *node = MALLOC(sizeof(struct fcache_t));
-		if(node == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		struct fcache_t *node = MALLOC_OR_EXIT(sizeof(struct fcache_t));
 		fseek(fp, 0, SEEK_END);
 		filesize = (size_t)ftell(fp);
 		fseek(fp, 0, SEEK_SET);
-		if((node->bytes = MALLOC(filesize + 1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		node->bytes = MALLOC_OR_EXIT(filesize + 1);
 		memset(node->bytes, '\0', filesize + 1);
 		if(fread(node->bytes, 1, filesize, fp) != filesize) {
 			logprintf(LOG_NOTICE, "error reading %s", filename);
@@ -124,11 +117,7 @@ int fcache_add(char *filename) {
 			return -1;
 		}
 		node->size = (int)filesize;
-		if((node->name = MALLOC(strlen(filename)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(node->name, filename);
+		node->name = STRDUP_OR_EXIT(filename);
 		node->next = fcache;
 		fcache = node;
 		fclose(fp);

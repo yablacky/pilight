@@ -71,7 +71,7 @@ static struct data_t *data;
 static unsigned short loop = 1;
 static unsigned short threads = 0;
 
-static void createMessage(char *server, int port, char *action, char *media) {
+static void createMessage(const char *server, int port, const char *action, const char *media) {
 	xbmc->message = json_mkobject();
 	JsonNode *code = json_mkobject();
 	json_append_member(code, "action", json_mkstring(action));
@@ -97,24 +97,19 @@ static void *thread(void *param) {
 	struct JsonNode *jchild = NULL;
 	struct JsonNode *jchild1 = NULL;
 	struct sockaddr_in serv_addr;
-	struct data_t *xnode = MALLOC(sizeof(struct data_t));
+	struct data_t *xnode = MALLOC_OR_EXIT(sizeof(struct data_t));
 
 	char recvBuff[BUFFER_SIZE], action[10], media[15];
-	char *m = NULL, *t = NULL;
-	char shut[] = "shutdown";
-	char home[] = "home";
-	char none[] = "none";
+	const char *m = NULL, *t = NULL;
+	const char shut[] = "shutdown";
+	const char home[] = "home";
+	const char none[] = "none";
 	int nrloops = 0, bytes = 0, n = 0, has_server = 0;
 	int has_port = 0, reset = 1, maxfd = 0, retry = 0;
 	fd_set fdsread;
 	struct timeval timeout;
 	timeout.tv_sec = 1;
 	timeout.tv_usec = 0;
-
-	if(xnode == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
 
 	/* Clear the server address */
 	memset(&serv_addr, '\0', sizeof(serv_addr));
@@ -125,24 +120,19 @@ static void *thread(void *param) {
 	threads++;
 
 	if((jid = json_find_member(json, "id"))) {
-		jchild = json_first_child(jid);
-		while(jchild) {
+		json_foreach(jchild, jid) {
 			jchild1 = json_first_child(jchild);
-
-			while(jchild1) {
+			json_foreach(jchild1, jchild) {
 				if(strcmp(jchild1->key, "server") == 0) {
-					if((xnode->server = MALLOC(strlen(jchild1->string_)+1)) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
-					strcpy(xnode->server, jchild1->string_);
+					// TODO: check type for string.
+					xnode->server = STRDUP_OR_EXIT(jchild1->string_);
 					has_server = 1;
 				}
 				if(strcmp(jchild1->key, "port") == 0) {
+					// TODO: check type for number.
 					xnode->port = (int)round(jchild1->number_);
 					has_port = 1;
 				}
-				jchild1 = jchild1->next;
 			}
 			if(has_server == 1 && has_port == 1) {
 				xnode->sockfd = -1;
@@ -155,7 +145,6 @@ static void *thread(void *param) {
 				FREE(xnode);
 				xnode = NULL;
 			}
-			jchild = jchild->next;
 		}
 	}
 
@@ -258,7 +247,7 @@ static void *thread(void *param) {
 						pthread_mutex_unlock(&xbmclock);
 						break;
 					} else {
-						if(json_validate(recvBuff) == true) {
+						if(json_validate(recvBuff, NULL) == true) {
 							JsonNode *joutput = json_decode(recvBuff);
 							JsonNode *params = NULL;
 							JsonNode *data = NULL;
@@ -347,8 +336,8 @@ static void threadGC(void) {
 }
 
 static int checkValues(JsonNode *code) {
-	char *action = NULL;
-	char *media = NULL;
+	const char *action = NULL;
+	const char *media = NULL;
 
 	if(json_find_string(code, "action", &action) == 0 &&
 	   json_find_string(code, "media", &media) == 0) {

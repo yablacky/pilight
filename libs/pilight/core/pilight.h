@@ -44,9 +44,9 @@ typedef enum origin_t {
 #include "../config/devices.h"
 
 struct pilight_t {
-	void (*broadcast)(char *name, JsonNode *message, enum origin_t origin);
+	void (*broadcast)(const char *name, const JsonNode *message, enum origin_t origin);
 	int (*send)(JsonNode *json, enum origin_t origin);
-	int (*control)(struct devices_t *dev, char *state, JsonNode *values, enum origin_t origin);
+	int (*control)(struct devices_t *dev, const char *state, const JsonNode *values, enum origin_t origin);
 	void (*receive)(struct JsonNode *code, int hwtype);
 	runmode_t runmode;
 	/* pilight actually runs in this stage and the configuration is fully validated */

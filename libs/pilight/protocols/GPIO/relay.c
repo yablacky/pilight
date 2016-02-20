@@ -45,21 +45,15 @@ static void createMessage(int gpio, int state) {
 }
 
 static int createCode(JsonNode *code) {
-	int free_def = 0;
 	int gpio = -1;
 	int state = -1;
 	double itmp = -1;
-	char *def = NULL;
+	const char *def = NULL;
 	int have_error = 0;
 
 	relay->rawlen = 0;
 	if(json_find_string(code, "default-state", &def) != 0) {
-		if((def = MALLOC(4)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(def, "off");
-		free_def = 1;
+		def =  "off";
 	}
 
 	if(json_find_number(code, "gpio", &itmp) == 0)
@@ -108,9 +102,6 @@ static int createCode(JsonNode *code) {
 	}
 
 clear:
-	if(free_def == 1) {
-		FREE(def);
-	}
 	if(have_error) {
 		return EXIT_FAILURE;
 	} else {
@@ -125,24 +116,15 @@ static void printHelp(void) {
 }
 
 static int checkValues(JsonNode *code) {
-	char *def = NULL;
+	const char *def = NULL;
 	struct JsonNode *jid = NULL;
 	struct JsonNode *jchild = NULL;
-	int free_def = 0;
 	double itmp = -1;
 
 	if(json_find_string(code, "default-state", &def) != 0) {
-		if((def = MALLOC(4)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(def, "off");
-		free_def = 1;
+		def = "off";
 	}
 	if(strcmp(def, "on") != 0 && strcmp(def, "off") != 0) {
-		if(free_def == 1) {
-			FREE(def);
-		}
 		return 1;
 	}
 
@@ -189,9 +171,6 @@ static int checkValues(JsonNode *code) {
 		}
 	}
 
-	if(free_def == 1) {
-		FREE(def);
-	}
 	return 0;
 }
 

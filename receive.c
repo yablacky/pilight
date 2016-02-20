@@ -72,11 +72,7 @@ int main(int argc, char **argv) {
 
 	log_level_set(LOG_NOTICE);
 
-	if((progname = MALLOC(16)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(progname, "pilight-receive");
+	progname = STRDUP_OR_EXIT("pilight-receive");
 	struct options_t *options = NULL;
 	struct ssdp_list_t *ssdp_list = NULL;
 
@@ -121,11 +117,7 @@ int main(int argc, char **argv) {
 				exit(EXIT_SUCCESS);
 			break;
 			case 'S':
-				if((server = MALLOC(strlen(args)+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				strcpy(server, args);
+				server = STRDUP_OR_EXIT(args);
 			break;
 			case 'P':
 				port = (unsigned short)atoi(args);
@@ -134,10 +126,7 @@ int main(int argc, char **argv) {
 				stats = 1;
 			break;
 			case 'F':
-				if((filter = REALLOC(filter, strlen(args)+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				filter = REALLOC_OR_EXIT(filter, strlen(args)+1);
 				strcpy(filter, args);
 				filteropt = 1;
 			break;
@@ -217,7 +206,7 @@ int main(int argc, char **argv) {
 		if(socket_read(sockfd, &recvBuff, 0) != 0) {
 			goto close;
 		}
-		char *protocol = NULL;
+		const char *protocol = NULL;
 		char **array = NULL;
 		unsigned int n = explode(recvBuff, "\n", &array), i = 0;
 

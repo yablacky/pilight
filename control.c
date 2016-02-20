@@ -54,8 +54,8 @@ int main(int argc, char **argv) {
 	struct ssdp_list_t *ssdp_list = NULL;
 	struct devices_t *dev = NULL;
 	struct JsonNode *json = NULL;
-	struct JsonNode *tmp = NULL;
-	char *recvBuff = NULL, *message = NULL, *output = NULL;
+	char *recvBuff = NULL, *output = NULL;
+	const char *message = NULL;
 	char *device = NULL, *state = NULL, *values = NULL;
 	char *server = NULL;
 	int has_values = 0, sockfd = 0, hasconfarg = 0;
@@ -68,12 +68,7 @@ int main(int argc, char **argv) {
 #ifndef _WIN32
 	wiringXLog = logprintf;
 #endif
-
-	if((progname = MALLOC(16)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(progname, "pilight-control");
+	progname = STRDUP_OR_EXIT("pilight-control");
 
 	/* Define all CLI arguments of this program */
 	options_add(&options, 'H', "help", OPTION_NO_VALUE, 0, JSON_NULL, NULL, NULL);
@@ -106,24 +101,15 @@ int main(int argc, char **argv) {
 				showversion = 1;
 			break;
 			case 'd':
-				if((device = REALLOC(device, strlen(optarg)+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				device = REALLOC_OR_EXIT(device, strlen(optarg)+1);
 				strcpy(device, optarg);
 			break;
 			case 's':
-				if((state = REALLOC(state, strlen(optarg)+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				state = REALLOC_OR_EXIT(state, strlen(optarg)+1);
 				strcpy(state, optarg);
 			break;
 			case 'v':
-				if((values = REALLOC(values, strlen(optarg)+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				values = REALLOC_OR_EXIT(values, strlen(optarg)+1);
 				strcpy(values, optarg);
 			break;
 			case 'C':
@@ -133,10 +119,7 @@ int main(int argc, char **argv) {
 				hasconfarg = 1;
 			break;
 			case 'S':
-				if(!(server = REALLOC(server, strlen(optarg)+1))) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				server = REALLOC_OR_EXIT(server, strlen(optarg)+1);
 				strcpy(server, optarg);
 			break;
 			case 'P':
@@ -210,9 +193,10 @@ int main(int argc, char **argv) {
 	socket_write(sockfd, output);
 	json_free(output);
 	json_delete(json);
+	json = NULL;
 
 	if(socket_read(sockfd, &recvBuff, 0) == 0) {
-		if(json_validate(recvBuff) == true) {
+		if(json_validate(recvBuff, NULL) == true) {
 			json = json_decode(recvBuff);
 			if(json_find_string(json, "message", &message) == 0) {
 				if(strcmp(message, "config") == 0) {
@@ -220,20 +204,18 @@ int main(int argc, char **argv) {
 					if((jconfig = json_find_member(json, "config")) != NULL) {
 						int match = 1;
 						while(match) {
-							struct JsonNode *jchilds = json_first_child(jconfig);
+							struct JsonNode *jchilds = NULL, *pending_delete = NULL;
 							match = 0;
-							while(jchilds) {
+							json_foreach(jchilds, jconfig) {
+								json_delete(pending_delete);
+								pending_delete = NULL;
 								if(strcmp(jchilds->key, "devices") != 0) {
 									json_remove_from_parent(jchilds);
-									tmp = jchilds;
+									pending_delete = jchilds;
 									match = 1;
 								}
-								jchilds = jchilds->next;
-								if(tmp != NULL) {
-									json_delete(tmp);
-								}
-								tmp = NULL;
 							}
+							json_delete(pending_delete);
 						}
 						config_parse(jconfig);
 						if(devices_get(device, &dev) == 0) {
@@ -247,20 +229,10 @@ int main(int argc, char **argv) {
 								char *ptr1 = strtok_r(values, ",", &sptr);
 								while(ptr1) {
 									char **array = NULL;
-									int n = explode(ptr1, "=", &array), q = 0;
+									int n = explode(ptr1, "=", &array);
 									if(n == 2) {
-										char *name = MALLOC(strlen(array[0])+1);
-										if(name == NULL) {
-											logprintf(LOG_ERR, "out of memory\n");
-											exit(EXIT_FAILURE);
-										}
-										strcpy(name, array[q]);
-										char *val = MALLOC(strlen(array[q+1])+1);
-										if(val == NULL) {
-											logprintf(LOG_ERR, "out of memory\n");
-											exit(EXIT_FAILURE);
-										}
-										strcpy(val, array[1]);
+										char *name = STRDUP_OR_EXIT(array[0]);
+										char *val = STRDUP_OR_EXIT(array[1]);
 										if(devices_valid_value(device, name, val) == 0) {
 											if(isNumeric(val) == EXIT_SUCCESS) {
 												json_append_member(jvalues, name, json_mknumber(atof(val), nrDecimals(val)));

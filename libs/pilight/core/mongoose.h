@@ -128,7 +128,7 @@ int mg_parse_multipart(const char *buf, int buf_len,
 void *mg_start_thread(void *(*func)(void *), void *param);
 char *mg_md5(char buf[33], ...);
 int mg_authorize_digest(struct mg_connection *c, FILE *fp);
-int mg_authorize_input(struct mg_connection *c, char *username, char *password, const char *domain);
+int mg_authorize_input(struct mg_connection *c, const char *username, const char *password, const char *domain);
 int mg_url_encode(const char *src, size_t s_len, char *dst, size_t dst_len);
 int mg_url_decode(const char *src, int src_len, char *dst, int dst_len, int);
 int mg_terminate_ssl(struct mg_connection *c, const char *cert);

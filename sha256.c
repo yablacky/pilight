@@ -77,11 +77,7 @@ int main(int argc, char **argv) {
 	sha256_context ctx;
 	int i = 0, x = 0;
 
-	if((progname = MALLOC(15)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(progname, "pilight-sha256");
+	progname = STRDUP_OR_EXIT("pilight-sha256");
 
 	options_add(&options, 'H', "help", OPTION_NO_VALUE, 0, JSON_NULL, NULL, NULL);
 	options_add(&options, 'V', "version", OPTION_NO_VALUE, 0, JSON_NULL, NULL, NULL);
@@ -107,11 +103,7 @@ int main(int argc, char **argv) {
 				goto close;
 			break;
 			case 'p':
-				if((password = MALLOC(strlen(args)+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				strcpy(password, args);
+				password = STRDUP_OR_EXIT(args);
 			break;
 			default:
 				printf("Usage: %s [options]\n", progname);
@@ -130,10 +122,7 @@ int main(int argc, char **argv) {
 	}
 
 	if(strlen(password) < 64) {
-		if((password = REALLOC(password, 65)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}		
+		password = REALLOC_OR_EXIT(password, 65);
 	}
 
 	for(i=0;i<SHA256_ITERATIONS;i++) {

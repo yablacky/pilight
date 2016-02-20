@@ -39,39 +39,48 @@ int unsetenv(const char *name);
 int isrunning(const char *program);
 #endif
 
+/**
+ * Calculate number of elements (not bytes like sizeof) in a
+ * compile time allocated buffer. Do not use it for pointers.
+ */
+#ifndef countof
+#define countof(buffer) (sizeof(buffer) / sizeof(buffer[0]))
+#endif
+
 void array_free(char ***array, int len);
 int isrunning(const char *program);
 void atomicinit(void);
 void atomiclock(void);
 void atomicunlock(void);
-unsigned int explode(char *str, const char *delimiter, char ***output);
-int isNumeric(char *str);
-int nrDecimals(char *str);
+unsigned int explode(const char *str, const char *delimiter, char ***output);
+char *str_join(const char *delimiter, size_t argc, const char * const *argv);
+int isNumeric(const char *str);
+int nrDecimals(const char *str);
 int name2uid(char const *name);
 int which(const char *program);
 int ishex(int x);
 const char *rstrstr(const char* haystack, const char* needle);
 void alpha_random(char *s, const int len);
 int urldecode(const char *s, char *dec);
-char *urlencode(char *str);
-char *base64encode(char *src, size_t len);
-char *base64decode(char *src, size_t len, size_t *decsize);
+char *urlencode(const char *str);
+char *base64encode(const char *src, size_t len);
+char *base64decode(const char *src, size_t len, size_t *decsize);
 char *hostname(void);
 char *distroname(void);
 void rmsubstr(char *s, const char *r);
-char *genuuid(char *ifname);
-int file_exists(char *fil);
-int path_exists(char *fil);
+char *genuuid(const char *ifname);
+int file_exists(const char *fil);
+int path_exists(const char *fil);
 char *uniq_space(char *str);
 
 #ifdef __FreeBSD__
-int findproc(char *name, char *args, int loosely);
+int findproc(const char *name, const char *args, int loosely);
 #else
-pid_t findproc(char *name, char *args, int loosely);
+pid_t findproc(const char *name, const char *args, int loosely);
 #endif
 
-int vercmp(char *val, char *ref);
-int str_replace(char *search, char *replace, char **str);
+int vercmp(const char *val, const char *ref);
+int str_replace(const char *search, const char *replace, char **str);
 int strcicmp(char const *a, char const *b);
 int file_get_contents(char *file, char **content);
 

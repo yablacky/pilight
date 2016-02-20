@@ -3806,7 +3806,7 @@ void mg_send_digest_auth_request(struct mg_connection *c) {
   close_local_endpoint(conn);
 }
 
-int mg_authorize_input(struct mg_connection *c, char *username, char *password, const char *domain) {
+int mg_authorize_input(struct mg_connection *c, const char *username, const char *password, const char *domain) {
   const char *hdr = NULL;
 	char **array = NULL, *decoded = NULL;
 	int n = 0;

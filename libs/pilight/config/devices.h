@@ -96,9 +96,10 @@ struct devices_t {
 extern struct config_t *config_devices;
 
 int devices_update(char *protoname, JsonNode *message, enum origin_t origin, JsonNode **out);
-int devices_get(char *sid, struct devices_t **dev);
-int devices_valid_state(char *sid, char *state);
-int devices_valid_value(char *sid, char *name, char *value);
+int devices_get(const char *sid, struct devices_t **dev);
+int devices_valid_state(const char *sid, const char *state);
+int devices_valid_value(const char *sid, const char *name, const char *value);
+
 struct JsonNode *devices_values(const char *media);
 void devices_init(void);
 int devices_gc(void);

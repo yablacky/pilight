@@ -61,7 +61,7 @@ static int checkArguments(struct rules_actions_t *obj) {
 	char **array = NULL;
 	double nr1 = 0.0, nr2 = 0.0, nr3 = 0.0, nr4 = 0.0, nr5 = 0.0;
 	int nrvalues = 0, l = 0, i = 0, match = 0;
-	int	nrunits = (sizeof(units)/sizeof(units[0]));
+	int nrunits = countof(units);
 
 	jdevice = json_find_member(obj->parsedargs, "DEVICE");
 	jto = json_find_member(obj->parsedargs, "TO");
@@ -119,10 +119,8 @@ static int checkArguments(struct rules_actions_t *obj) {
 
 	nrvalues = 0;
 	if((javalues = json_find_member(jto, "value")) != NULL) {
-		jachild = json_first_child(javalues);
-		while(jachild) {
+		json_foreach(jachild, javalues) {
 			nrvalues++;
-			jachild = jachild->next;
 		}
 	}
 	if(nrvalues != 1) {
@@ -133,8 +131,7 @@ static int checkArguments(struct rules_actions_t *obj) {
 	nrvalues = 0;
 	if(jfor != NULL) {
 		if((jcvalues = json_find_member(jfor, "value")) != NULL) {
-			jcchild = json_first_child(jcvalues);
-			while(jcchild) {
+			json_foreach(jcchild, jcvalues) {
 				nrvalues++;
 				if(jcchild->tag == JSON_STRING) {
 					l = explode(jcchild->string_, " ", &array);
@@ -159,13 +156,10 @@ static int checkArguments(struct rules_actions_t *obj) {
 						array_free(&array, l);
 					} else {
 						logprintf(LOG_ERR, "switch action \"FOR\" requires a positive number and a unit e.g. \"1 MINUTE\"");
-						if(l > 0) {
-							array_free(&array, l);
-						}
+						array_free(&array, l);
 						return -1;
 					}
 				}
-				jcchild = jcchild->next;
 			}
 		}
 		if(nrvalues != 1) {
@@ -177,8 +171,7 @@ static int checkArguments(struct rules_actions_t *obj) {
 	nrvalues = 0;
 	if(jafter != NULL) {
 		if((jdvalues = json_find_member(jafter, "value")) != NULL) {
-			jdchild = json_first_child(jdvalues);
-			while(jdchild) {
+			json_foreach(jdchild, jdvalues) {
 				nrvalues++;
 				if(jdchild->tag == JSON_STRING) {
 					l = explode(jdchild->string_, " ", &array);
@@ -203,13 +196,10 @@ static int checkArguments(struct rules_actions_t *obj) {
 						array_free(&array, l);
 					} else {
 						logprintf(LOG_ERR, "switch action \"AFTER\" requires a positive number and a unit e.g. \"1 MINUTE\"");
-						if(l > 0) {
-							array_free(&array, l);
-						}
+						array_free(&array, l);
 						return -1;
 					}
 				}
-				jdchild = jdchild->next;
 			}
 		}
 		if(nrvalues != 1) {
@@ -221,10 +211,8 @@ static int checkArguments(struct rules_actions_t *obj) {
 	nrvalues = 0;
 	if(jcolor != NULL) {
 		if((jevalues = json_find_member(jcolor, "value")) != NULL) {
-			jechild = json_first_child(jevalues);
-			while(jechild) {
+			json_foreach(jechild, jevalues) {
 				nrvalues++;
-				jechild = jechild->next;
 			}
 		}
 		if(nrvalues != 1) {
@@ -234,8 +222,7 @@ static int checkArguments(struct rules_actions_t *obj) {
 	}
 
 	if((jbvalues = json_find_member(jdevice, "value")) != NULL) {
-		jbchild = json_first_child(jbvalues);
-		while(jbchild) {
+		json_foreach(jbchild, jbvalues) {
 			if(jbchild->tag == JSON_STRING) {
 				struct devices_t *dev = NULL;
 				if(devices_get(jbchild->string_, &dev) == 0) {
@@ -259,7 +246,6 @@ static int checkArguments(struct rules_actions_t *obj) {
 			} else {
 				return -1;
 			}
-			jbchild = jbchild->next;
 		}
 	}
 	return 0;
@@ -280,7 +266,8 @@ static void *thread(void *param) {
 	struct JsonNode *jaseconds = NULL;
 	struct JsonNode *jvalues = NULL;
 	char *new_label = NULL, *old_label = NULL, *label = NULL, **array = NULL;
-	char *new_color = NULL, *old_color = NULL, *color = NULL;
+	char *new_color = NULL, *old_color = NULL;
+	const char *color = NULL;
 	int seconds_after = 0, type_after = 0, free_label = 0;
 	int	l = 0, i = 0, nrunits = (sizeof(units)/sizeof(units[0]));
 	int seconds_for = 0, type_for = 0, timer = 0;
@@ -292,11 +279,7 @@ static void *thread(void *param) {
 			jcolor = json_find_element(jevalues, 0);
 			if(jcolor != NULL && jcolor->tag == JSON_STRING) {
 				color = jcolor->string_;
-				if((new_color = MALLOC(strlen(color)+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				strcpy(new_color, color);
+				new_color = STRDUP_OR_EXIT(color);
 			}
 		}
 	}
@@ -316,9 +299,7 @@ static void *thread(void *param) {
 							}
 						}
 					}
-					if(l > 0) {
-						array_free(&array, l);
-					}
+					array_free(&array, l);
 				}
 			}
 		}
@@ -339,9 +320,7 @@ static void *thread(void *param) {
 							}
 						}
 					}
-					if(l > 0) {
-						array_free(&array, l);
-					}
+					array_free(&array, l);
 				}
 			}
 		}
@@ -379,21 +358,13 @@ static void *thread(void *param) {
 		while(opt) {
 			if(strcmp(opt->name, "label") == 0) {
 				if(opt->values->type == JSON_STRING) {
-					if((old_label = MALLOC(strlen(opt->values->string_)+1)) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
-					strcpy(old_label, opt->values->string_);
+					old_label = STRDUP_OR_EXIT(opt->values->string_);
 					match1 = 1;
 				}
 			}
 			if(strcmp(opt->name, "color") == 0) {
 				if(opt->values->type == JSON_STRING) {
-					if((old_color = MALLOC(strlen(opt->values->string_)+1)) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
-					strcpy(old_color, opt->values->string_);
+					old_color = STRDUP_OR_EXIT(opt->values->string_);
 					match2 = 1;
 				}
 			}
@@ -422,20 +393,14 @@ static void *thread(void *param) {
 							label = jlabel->string_;
 						} else if(jlabel->tag == JSON_NUMBER) {
 							int l = snprintf(NULL, 0, "%.*f", jlabel->decimals_, jlabel->number_);
-							if((label = MALLOC(l+1)) == NULL) {
-								fprintf(stderr, "out of memory\n");
-								exit(EXIT_FAILURE);
-							}
+							label = MALLOC_OR_EXIT(l+1);
 							memset(label, '\0', l);
 							free_label = 1;
 							snprintf(label, l, "%.*f", jlabel->decimals_, jlabel->number_);
 							label[l] = '\0';
 						}
-						if((new_label = MALLOC(strlen(label)+1)) == NULL) {
-							fprintf(stderr, "out of memory\n");
-							exit(EXIT_FAILURE);
-						}
-						strcpy(new_label, label);
+						FREE(new_label);
+						new_label = STRDUP_OR_EXIT(label);
 						/*
 						 * We're not switching when current label or is the same as
 						 * the old label or old color.
@@ -499,21 +464,10 @@ static void *thread(void *param) {
 		FREE(label);
 	}
 
-	if(old_label != NULL) {
-		FREE(old_label);
-	}
-
-	if(new_label != NULL) {
-		FREE(new_label);
-	}
-
-	if(old_color != NULL) {
-		FREE(old_color);
-	}
-
-	if(new_color != NULL) {
-		FREE(new_color);
-	}
+	FREE(old_label);
+	FREE(new_label);
+	FREE(old_color);
+	FREE(new_color);
 
 	event_action_stopped(pth);
 
@@ -529,15 +483,13 @@ static int run(struct rules_actions_t *obj) {
 	if((jdevice = json_find_member(obj->parsedargs, "DEVICE")) != NULL &&
 		 (jto = json_find_member(obj->parsedargs, "TO")) != NULL) {
 		if((jbvalues = json_find_member(jdevice, "value")) != NULL) {
-			jbchild = json_first_child(jbvalues);
-			while(jbchild) {
+			json_foreach(jbchild, jbvalues) {
 				if(jbchild->tag == JSON_STRING) {
 					struct devices_t *dev = NULL;
 					if(devices_get(jbchild->string_, &dev) == 0) {
 						event_action_thread_start(dev, action_label->name, thread, obj);
 					}
 				}
-				jbchild = jbchild->next;
 			}
 		}
 	}

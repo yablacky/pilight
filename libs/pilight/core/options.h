@@ -41,6 +41,7 @@ typedef struct options_t {
 	};
 	char *mask;
 	void *def;
+	char *comment;
 	int argtype;
 	int conftype;
 	int vartype;
@@ -54,7 +55,7 @@ int options_get_string(struct options_t **options, int id, char **out);
 int options_get_number(struct options_t **options, int id, double *out);
 int options_get_argtype(struct options_t **options, int id, int *out);
 int options_get_name(struct options_t **options, int id, char **out);
-int options_get_id(struct options_t **options, char *name, int *out);
+int options_get_id(struct options_t **options, const char *name, int *out);
 int options_get_mask(struct options_t **options, int id, char **out);
 int options_parse(struct options_t **options, int argc, char **argv, int error_check, char **optarg);
 void options_add(struct options_t **options, int id, const char *name, int argtype, int conftype, int vartype, void *def, const char *mask);

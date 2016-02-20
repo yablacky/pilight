@@ -20,12 +20,12 @@
 #define _MAIL_H_
 
 typedef struct mail_t {
-	char *from;
-	char *to;
-	char *subject;
-	char *message;
+	const char *from;
+	const char *to;
+	const char *subject;
+	const char *message;
 } mail_t;
 
-int sendmail(char *host, char *login, char *pass, unsigned short port, struct mail_t *mail);
+int sendmail(const char *host, const char *login, const char *pass, unsigned short port, const struct mail_t *mail);
 
 #endif

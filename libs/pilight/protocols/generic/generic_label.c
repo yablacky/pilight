@@ -30,7 +30,7 @@
 #include "../../core/gc.h"
 #include "generic_label.h"
 
-static void createMessage(int id, char *label, char *color) {
+static void createMessage(int id, const char *label, const char *color) {
 	generic_label->message = json_mkobject();
 	json_append_member(generic_label->message, "id", json_mknumber(id, 0));
 	json_append_member(generic_label->message, "label", json_mkstring(label));
@@ -38,9 +38,10 @@ static void createMessage(int id, char *label, char *color) {
 }
 
 static int createCode(JsonNode *code) {
-	int id = -1, free_label = 0;
-	char *label = NULL;
-	char *color = "black";
+	int id = -1;
+	const char *label = NULL;
+	const char *color = "black";
+	char btmp[32];
 	double itmp = 0;
 
 	if(json_find_number(code, "id", &itmp) == 0)
@@ -48,12 +49,8 @@ static int createCode(JsonNode *code) {
 
 	json_find_string(code, "label", &label);
 	if(json_find_number(code, "label", &itmp) == 0) {
-		if((label = MALLOC(BUFFER_SIZE)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		free_label = 1;
-		snprintf(label, BUFFER_SIZE, "%d", (int)itmp);
+		snprintf(btmp, sizeof(btmp), "%d", (int)itmp);
+		label = btmp;
 	}
 	json_find_string(code, "color", &color);
 
@@ -62,9 +59,6 @@ static int createCode(JsonNode *code) {
 		return EXIT_FAILURE;
 	} else {
 		createMessage(id, label, color);
-	}
-	if(free_label) {
-		FREE(label);
 	}
 
 	return EXIT_SUCCESS;

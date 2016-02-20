@@ -198,11 +198,7 @@ int ssdp_seek(struct ssdp_list_t **ssdp_list) {
 			}
 			array_free(&array, n);
 			if(match == 1) {
-				struct ssdp_list_t *node = MALLOC(sizeof(struct ssdp_list_t));
-				if(node == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				struct ssdp_list_t *node = MALLOC_OR_EXIT(sizeof(struct ssdp_list_t));
 				sprintf(node->ip, "%hu.%hu.%hu.%hu", nip[0], nip[1], nip[2], nip[3]);
 				node->ip[16] = '\0';
 				node->port = port;
@@ -277,14 +273,8 @@ void *ssdp_wait(void *param) {
 					logprintf(LOG_ERR, "could not generate the device uuid");
 					continue;
 				}
-				if((header = REALLOC(header, sizeof(char *)*((size_t)nrheader+1))) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				if((header[nrheader] = MALLOC(BUFFER_SIZE)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
+				header = REALLOC_OR_EXIT(header, sizeof(char *)*((size_t)nrheader+1));
+				header[nrheader] = MALLOC_OR_EXIT(BUFFER_SIZE);
 				memset(header[nrheader], '\0', BUFFER_SIZE);
 				sprintf(header[nrheader], "NOTIFY * HTTP/1.1\r\n"
 					"Host:239.255.255.250:1900\r\n"

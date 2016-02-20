@@ -85,7 +85,7 @@ static size_t sd_read(char *buffer) {
 	return l;
 }
 
-static size_t sd_write(char *content) {
+static size_t sd_write(const char *content) {
 	size_t len = strlen(content);
 
 	if(have_ssl == 0) {
@@ -95,7 +95,7 @@ static size_t sd_write(char *content) {
 	}
 }
 
-int sendmail(char *host, char *login, char *pass, unsigned short port, struct mail_t *mail) {
+int sendmail(const char *host, const char *login, const char *pass, unsigned short port, const struct mail_t *mail) {
 	struct sockaddr_in serv_addr;
 	char recvBuff[BUFFER_SIZE], *out = NULL, ip[INET_ADDRSTRLEN+1], testme[256], ch = 0;
 	int authtype = UNSUPPORTED, entropyfree = 0, sslfree = 0, error = 0, val = 0;
@@ -212,10 +212,7 @@ starttls:
 	}
 
 	len = strlen("EHLO ")+strlen(USERAGENT)+3;
-	if((out = REALLOC(out, len+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	out = REALLOC_OR_EXIT(out, len+1);
 	len = (size_t)snprintf(out, len, "EHLO %s\r\n", USERAGENT);
 	if(pilight.debuglevel == 1) {
 		fprintf(stderr, "SMTP: %s", out);
@@ -267,10 +264,7 @@ starttls:
 	 */
 	if(authtype == STARTTLS) {
 		len = strlen("STARTTLS\r\n")+1;
-		if((out = REALLOC(out, len+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		out = REALLOC_OR_EXIT(out, len+1);
 		strcpy(out, "STARTTLS\r\n");
 		if(pilight.debuglevel == 1) {
 			fprintf(stderr, "SMTP: %s", out);
@@ -307,11 +301,7 @@ starttls:
 
 	len = strlen(login)+strlen(pass)+2;
 
-	char *authstr = MALLOC(len), *hash = NULL;
-	if(authstr == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	char *authstr = MALLOC_OR_EXIT(len), *hash = NULL;
 	memset(authstr, '\0', len);
 	strncpy(&authstr[1], login, strlen(login));
 	strncpy(&authstr[2+strlen(login)], pass, len-strlen(login)-2);
@@ -319,10 +309,7 @@ starttls:
 	FREE(authstr);
 
 	len = strlen("AUTH PLAIN ")+strlen(hash)+3;
-	if((out = REALLOC(out, len+4)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	out = REALLOC_OR_EXIT(out, len+4);
 	memset(out, '\0', len);
 	snprintf(out, len, "AUTH PLAIN %s\r\n", hash);
 	FREE(hash);
@@ -363,10 +350,7 @@ starttls:
 	}
 
 	len = strlen("MAIL FROM: <>\r\n")+strlen(mail->from)+1;
-	if((out = REALLOC(out, len+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	out = REALLOC_OR_EXIT(out, len+1);
 	len = (size_t)snprintf(out, len, "MAIL FROM: <%s>\r\n", mail->from);
 	if(pilight.debuglevel == 1) {
 		fprintf(stderr, "SMTP: %s", out);
@@ -389,10 +373,7 @@ starttls:
 	}
 
 	len = strlen("RCPT TO: <>\r\n")+strlen(mail->to)+1;
-	if((out = REALLOC(out, len+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	out = REALLOC_OR_EXIT(out, len+1);
 	snprintf(out, len, "RCPT TO: <%s>\r\n", mail->to);
 	if(pilight.debuglevel == 1) {
 		fprintf(stderr, "SMTP: %s", out);
@@ -415,10 +396,7 @@ starttls:
 	}
 
 	len = strlen("DATA\r\n")+1;
-	if((out = REALLOC(out, len+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	out = REALLOC_OR_EXIT(out, len+1);
 	strcpy(out, "DATA\r\n");
 	if(pilight.debuglevel == 1) {
 		fprintf(stderr, "SMTP: %s", out);
@@ -441,10 +419,7 @@ starttls:
 	}
 
 	len = 255+strlen(mail->to)+strlen(mail->from)+strlen(mail->subject)+strlen(mail->message);
-	if((out = REALLOC(out, len+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	out = REALLOC_OR_EXIT(out, len+1);
 	len = (size_t)snprintf(out, len, "Subject: %s\r\n"
 										"From: <%s>\r\n"
 										"To: <%s>\r\n"
@@ -476,10 +451,7 @@ starttls:
 	}
 
 	len = strlen("RSET\r\n");
-	if((out = REALLOC(out, len+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	out = REALLOC_OR_EXIT(out, len+1);
 	strcpy(out, "RSET\r\n");
 	if(pilight.debuglevel == 1) {
 		fprintf(stderr, "SMTP: %s", out);
@@ -502,10 +474,7 @@ starttls:
 	}
 
 	len = strlen("QUIT\r\n");
-	if((out = REALLOC(out, len+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	out = REALLOC_OR_EXIT(out, len+1);
 	strcpy(out, "QUIT\r\n");
 	if(pilight.debuglevel == 1) {
 		fprintf(stderr, "SMTP: %s", out);

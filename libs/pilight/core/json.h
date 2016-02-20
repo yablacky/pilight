@@ -28,12 +28,16 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#define JSON_NULL		0x1
-#define JSON_BOOL		0x2
-#define JSON_STRING	0x4
-#define JSON_NUMBER 0x8
-#define JSON_ARRAY	0x16
-#define JSON_OBJECT	0x23
+#define JSON_TAG_UNDEFINED	(0)
+#define JSON_NULL		(0x1)
+#define JSON_BOOL		(0x2)
+#define JSON_STRING		(0x4)
+#define JSON_NUMBER		(0x8)
+#define JSON_ARRAY		(0x16)
+#define JSON_OBJECT		(0x23)
+#define JSON_LINE_COMMENT	(0x32)
+#define JSON_BLOCK_COMMENT	(0x33)
+#define JSON_TAG_HIGH_VALUE	(0x33)
 
 #define JsonTag			int
 
@@ -54,6 +58,8 @@ struct JsonNode
 		bool bool_;
 
 		/* JSON_STRING */
+		/* JSON_LINE_COMMENT */
+		/* JSON_BLOCK_COMMENT */
 		char *string_; /* Must be valid UTF-8. */
 
 		/* JSON_NUMBER */
@@ -76,9 +82,12 @@ char       *json_encode_string  (const char *str);
 char       *json_stringify      (const JsonNode *node, const char *space);
 void        json_delete         (JsonNode *node);
 
-bool        json_validate       (const char *json);
+bool        json_validate       (const char *json, const char **problem);
 
 /*** Lookup and traversal ***/
+
+#define json_is_comment(node)	((node)->tag == JSON_LINE_COMMENT || \
+				 (node)->tag == JSON_BLOCK_COMMENT)
 
 JsonNode   *json_find_element   (JsonNode *array, int index);
 JsonNode   *json_find_member    (JsonNode *object, const char *key);
@@ -86,6 +95,11 @@ JsonNode   *json_find_member    (JsonNode *object, const char *key);
 JsonNode   *json_first_child    (const JsonNode *node);
 
 #define json_foreach(i, object_or_array)            \
+	for ((i) = json_first_child(object_or_array);   \
+		 (i) != NULL;                               \
+		 (i) = (i)->next) if (!json_is_comment(i))
+
+#define json_foreach_and_all(i, object_or_array)            \
 	for ((i) = json_first_child(object_or_array);   \
 		 (i) != NULL;                               \
 		 (i) = (i)->next)
@@ -103,6 +117,7 @@ void json_append_element(JsonNode *array, JsonNode *element);
 void json_prepend_element(JsonNode *array, JsonNode *element);
 void json_append_member(JsonNode *object, const char *key, JsonNode *value);
 void json_prepend_member(JsonNode *object, const char *key, JsonNode *value);
+void json_append_comment(JsonNode *target, const char *comment);
 
 void json_remove_from_parent(JsonNode *node);
 
@@ -118,7 +133,11 @@ void json_free(void *a);
  */
 bool json_check(const JsonNode *node, char errmsg[256]);
 
+/*
+ * WARNING: The return value of the next _find_ functions is vice-versa:
+ * 0 means found, non-null means not found.
+ */
 int json_find_number(JsonNode *object, const char *name, double *out);
-int json_find_string(JsonNode *object, const char *name, char **out);
+int json_find_string(JsonNode *object, const char *name, const char **out);
 
 #endif

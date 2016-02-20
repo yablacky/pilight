@@ -70,7 +70,8 @@ static void *thread(void *param) {
 	struct JsonNode *json = (struct JsonNode *)node->param;
 	struct JsonNode *jid = NULL;
 	struct JsonNode *jchild = NULL;
-	char *dstmac = NULL, srcmac[ETH_ALEN], *a = srcmac;
+	const char *dstmac = NULL;
+	char srcmac[ETH_ALEN], *a = srcmac;
 	char *tmpip[INET_ADDRSTRLEN+1], dstip[INET_ADDRSTRLEN+1];
 	char ip[INET_ADDRSTRLEN+1], *p = ip, **devs = NULL;
 	double itmp = 0.0;
@@ -94,11 +95,14 @@ static void *thread(void *param) {
 	memset(dstip, '\0', INET_ADDRSTRLEN+1);
 	memset(tmpip, '\0', INET_ADDRSTRLEN+1);
 
-	for(i=0;i<strlen(dstmac);i++) {
-		if(isNumeric(&dstmac[i]) != 0) {
-			dstmac[i] = (char)tolower(dstmac[i]);
+	char ourmac[strlen(dstmac)+1];
+	strcpy(ourmac, dstmac);
+	for(i=0;i<strlen(ourmac);i++) {
+		if(isNumeric(&ourmac[i]) != 0) { // FIXME: this test the string - not the single digt.
+			ourmac[i] = (char)tolower(ourmac[i]);
 		}
 	}
+	dstmac = ourmac;
 
 	if((nrdevs = inetdevs(&devs)) == 0) {
 		logprintf(LOG_ERR, "could not determine default network interface");

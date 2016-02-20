@@ -40,14 +40,14 @@ const char *inet_ntop(int af, const void *src, char *dst, int cnt);
 #endif
 
 int inetdevs(char ***array);
-int dev2mac(char *ifname, char **mac);
+int dev2mac(const char *ifname, char **mac);
 #ifdef __FreeBSD__
-int dev2ip(char *dev, char **ip, __sa_family_t type);
+int dev2ip(const char *dev, char **ip, __sa_family_t type);
 #else
-int dev2ip(char *dev, char **ip, sa_family_t type);
+int dev2ip(const char *dev, char **ip, sa_family_t type);
 #endif
-int host2ip(char *host, char *ip);
-int whitelist_check(char *ip);
+int host2ip(const char *host, char *ip);
+int whitelist_check(const char *ip);
 void whitelist_free(void);
 
 #ifdef __FreeBSD__

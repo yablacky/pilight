@@ -256,15 +256,9 @@ static int unmarshal_arp_pkt(const unsigned char *buffer, size_t buf_len, ether_
 
 void arp_add_host(const char *host_name) {
 
-	if((helist = REALLOC(helist, ((num_hosts+1) * sizeof(struct host_entry *)))) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	helist = REALLOC_OR_EXIT(helist, ((num_hosts+1) * sizeof(struct host_entry *)));
 
-	if((helist[num_hosts] = MALLOC(sizeof(struct host_entry))) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	helist[num_hosts] = MALLOC_OR_EXIT(sizeof(struct host_entry));
 	helist[num_hosts]->addr.s_addr = inet_addr(host_name);
 	helist[num_hosts]->live = 1;
 	helist[num_hosts]->timeout = 500 * 1000;	/* Convert from ms to us */
@@ -276,7 +270,7 @@ void arp_add_host(const char *host_name) {
 	num_hosts++;
 }
 
-static int send_packet(pcap_t *pcap_handle, host_entry *he, struct timeval *last_packet_time, char source_mac[ETH_ALEN]) {
+static int send_packet(pcap_t *pcap_handle, host_entry *he, struct timeval *last_packet_time, const char source_mac[ETH_ALEN]) {
 	struct ether_hdr frame_hdr;
 	struct arp_ether_ipv4 arpei;
 	unsigned char buf[MAX_FRAME];
@@ -416,7 +410,7 @@ static int recvfrom_wto(long unsigned int tmo, pcap_t *pcap_handle) {
 	return -1;
 }
 
-int arp_resolv(char *if_name, char *srcmac, char *dstmac, char **ip) {
+int arp_resolv(const char *if_name, const char *srcmac, const char *dstmac, char **ip) {
 	struct timeval now, diff, last_packet_time;
 	pcap_t *pcap_handle = NULL;
 	unsigned long int loop_timediff = 0, host_timediff = 0;
@@ -427,11 +421,7 @@ int arp_resolv(char *if_name, char *srcmac, char *dstmac, char **ip) {
 	int reset_cum_err = 0, first_timeout = 1;
 	int i = 0;
 
-	if((if_cpy = MALLOC(strlen(if_name)+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(if_cpy, if_name);
+	if_cpy = STRDUP_OR_EXIT(if_name);
 
 #ifdef _WIN32
 	int match = 0;
@@ -447,10 +437,7 @@ int arp_resolv(char *if_name, char *srcmac, char *dstmac, char **ip) {
 	for(d=alldevs;d;d=d->next) {
 		if(strstr(d->name, if_cpy) != NULL) {
 			match = 1;
-			if((if_cpy = REALLOC(if_cpy, strlen(d->name)+1)) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
+			if_cpy = REALLOC_OR_EXIT(if_cpy, strlen(d->name)+1);
 			strcpy(if_cpy, d->name);
 			break;
 		}

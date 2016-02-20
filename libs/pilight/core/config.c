@@ -174,6 +174,7 @@ int config_write(int level, const char *media) {
 	/* Overwrite config file with proper format */
 	if((fp = fopen(configfile, "w+")) == NULL) {
 		logprintf(LOG_ERR, "cannot write config file: %s", configfile);
+		json_delete(root);
 		return EXIT_FAILURE;
 	}
 	fseek(fp, 0L, SEEK_SET);
@@ -181,9 +182,9 @@ int config_write(int level, const char *media) {
 	if((content = json_stringify(root, "\t")) != NULL) {
 		fwrite(content, sizeof(char), strlen(content), fp);
 		json_free(content);
-		json_delete(root);
 	}
 	fclose(fp);
+	json_delete(root);
 	return EXIT_SUCCESS;
 }
 
@@ -191,17 +192,46 @@ int config_read(void) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	char *content = NULL;
+	const char *problem = NULL;
 	struct JsonNode *root = NULL;
 
 	/* Read JSON config file */
 	if(file_get_contents(configfile, &content) == 0) {
 		/* Validate JSON and turn into JSON object */
-		if(json_validate(content) == false) {
-			logprintf(LOG_ERR, "config is not in a valid json format");
+		if(json_validate(content, &problem) == false) {
+			size_t lino = 0;
+			if (problem == NULL)
+				problem = "(sorry no problem information)";
+			else {
+				char * const p = content + (problem - content);
+				size_t len = strlen(p);
+				if (len > 64)
+					p[65] = 0;
+				char ch = *p; *p = 0; // make temporary null terminated
+				char *s;
+				for (s = content; s; s ? s++ : s) {
+					lino++;
+					s = strchr(s, '\n');
+				}
+				*p = ch;	// undo null termination
+			}
+			logprintf(LOG_ERR, "config is not in a valid json format."
+					" Problem in line %d at %s ...", lino, problem);
 			FREE(content);
 			return EXIT_FAILURE;
 		}
 		root = json_decode(content);
+
+		if (1) {
+			char fn[strlen(configfile) + sizeof(".bak")];
+			strcpy(fn, configfile); strcat(fn, ".bak");
+			FILE *fp = fopen(fn, "w");
+			if(fp) {
+				char *json = json_stringify(root, "\t");
+				fputs(json ? json : "/* something went worng... */\n", fp);
+				fclose(fp);
+			}
+		}
 
 		if(config_parse(root) != EXIT_SUCCESS) {
 			FREE(content);
@@ -218,31 +248,18 @@ int config_read(void) {
 void config_register(config_t **listener, const char *name) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	if((*listener = MALLOC(sizeof(config_t))) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-
-	if(((*listener)->name = MALLOC(strlen(name)+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy((*listener)->name, name);
+	CONFIG_ALLOC_NAMED_NODE(*listener, name);
 	(*listener)->parse = NULL;
 	(*listener)->sync = NULL;
 	(*listener)->gc = NULL;
-	(*listener)->next = config;
-	config = (*listener);
+	CONFIG_PREPEND_NODE_TO_LIST(*listener, config);
 }
 
 int config_set_file(char *settfile) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	if(access(settfile, R_OK | W_OK) != -1) {
-		if((configfile = REALLOC(configfile, strlen(settfile)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		configfile = REALLOC_OR_EXIT(configfile, strlen(settfile)+1);
 		strcpy(configfile, settfile);
 	} else {
 		logprintf(LOG_ERR, "the config file %s does not exists", settfile);

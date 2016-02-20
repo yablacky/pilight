@@ -312,11 +312,7 @@ int main(int argc, char **argv) {
 	/* Catch all exit signals for gc */
 	gc_catch();
 
-	if((progname = MALLOC(15)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(progname, "pilight-debug");
+	progname = STRDUP_OR_EXIT("pilight-debug");
 
 #ifndef _WIN32
 	if(geteuid() != 0) {

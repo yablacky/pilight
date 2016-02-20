@@ -75,11 +75,7 @@ int main(int argc, char **argv) {
 	char *p = NULL;
 	char *args = NULL;
 
-	if((progname = MALLOC(13)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(progname, "pilight-uuid");
+	progname = STRDUP_OR_EXIT("pilight-uuid");
 
 	options_add(&options, 'H', "help", OPTION_NO_VALUE, 0, JSON_NULL, NULL, NULL);
 	options_add(&options, 'V', "version", OPTION_NO_VALUE, 0, JSON_NULL, NULL, NULL);
@@ -112,15 +108,14 @@ int main(int argc, char **argv) {
 
 	int nrdevs = 0, x = 0;
 	char **devs = NULL;
-	if((nrdevs = inetdevs(&devs)) > 0) {
-		for(x=0;x<nrdevs;x++) {
-			if((p = genuuid(devs[x])) == NULL) {
-				logprintf(LOG_ERR, "could not generate the device uuid");
-			} else {
-				strcpy(pilight_uuid, p);
-				FREE(p);
-				break;
-			}
+	nrdevs = inetdevs(&devs);
+	for(x=0;x<nrdevs;x++) {
+		if((p = genuuid(devs[x])) == NULL) {
+			logprintf(LOG_ERR, "could not generate the device uuid");
+		} else {
+			strcpy(pilight_uuid, p);
+			FREE(p);
+			break;
 		}
 	}
 	array_free(&devs, nrdevs);

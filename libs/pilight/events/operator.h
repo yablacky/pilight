@@ -21,7 +21,7 @@
 
 typedef struct event_operators_t {
 	char *name;
-	void (*callback_string)(char *a, char *b, char **ret);
+	void (*callback_string)(const char *a, const char *b, char **ret);
 	void (*callback_number)(double a, double b, char **ret);
 	unsigned short type;
 	struct event_operators_t *next;

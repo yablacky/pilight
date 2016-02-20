@@ -58,17 +58,9 @@ void *dso_load(char *object) {
 		atomicunlock();
 		return NULL;
 	} else {
-		struct dso_t *node = MALLOC(sizeof(struct dso_t));
-		if(!node) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		struct dso_t *node = MALLOC_OR_EXIT(sizeof(struct dso_t));
 		node->handle = handle;
-		if((node->name = MALLOC(strlen(object)+1)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(node->name, object);
+		node->name = STRDUP_OR_EXIT(object);
 		node->next = dso;
 		dso = node;
 		return handle;

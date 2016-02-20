@@ -68,7 +68,8 @@ static void *ds18b20Parse(void *param) {
 	double w1temp = 0.0;
 	size_t bytes = 0;
 #endif
-	char **id = NULL, *stmp = NULL, *content = NULL;
+	char **id = NULL, *content = NULL;
+	const char *stmp = NULL;
 	char *ds18b20_sensor = NULL;
 	int nrid = 0, interval = 10, nrloops = 0, y = 0;
 	double temp_offset = 0.0, itmp = 0.0;

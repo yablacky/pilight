@@ -101,10 +101,8 @@ static int checkArguments(struct rules_actions_t *obj) {
 
 	nrvalues = 0;
 	if((javalues = json_find_member(jto, "value")) != NULL) {
-		jachild = json_first_child(javalues);
-		while(jachild) {
+		json_foreach(jachild, javalues) {
 			nrvalues++;
-			jachild = jachild->next;
 		}
 	}
 	if(nrvalues != 1) {
@@ -115,8 +113,7 @@ static int checkArguments(struct rules_actions_t *obj) {
 	nrvalues = 0;
 	if(jfor != NULL) {
 		if((jcvalues = json_find_member(jfor, "value")) != NULL) {
-			jcchild = json_first_child(jcvalues);
-			while(jcchild) {
+			json_foreach(jcchild, jcvalues) {
 				nrvalues++;
 				if(jcchild->tag == JSON_STRING) {
 					l = explode(jcchild->string_, " ", &array);
@@ -146,7 +143,6 @@ static int checkArguments(struct rules_actions_t *obj) {
 						return -1;
 					}
 				}
-				jcchild = jcchild->next;
 			}
 		}
 		if(nrvalues != 1) {
@@ -158,8 +154,7 @@ static int checkArguments(struct rules_actions_t *obj) {
 	nrvalues = 0;
 	if(jafter != NULL) {
 		if((jdvalues = json_find_member(jafter, "value")) != NULL) {
-			jdchild = json_first_child(jdvalues);
-			while(jdchild) {
+			json_foreach(jdchild, jdvalues) {
 				nrvalues++;
 				if(jdchild->tag == JSON_STRING) {
 					l = explode(jdchild->string_, " ", &array);
@@ -189,7 +184,6 @@ static int checkArguments(struct rules_actions_t *obj) {
 						return -1;
 					}
 				}
-				jdchild = jdchild->next;
 			}
 		}
 		if(nrvalues != 1) {
@@ -199,14 +193,12 @@ static int checkArguments(struct rules_actions_t *obj) {
 	}
 
 	if((jbvalues = json_find_member(jdevice, "value")) != NULL) {
-		jbchild = json_first_child(jbvalues);
-		while(jbchild) {
+		json_foreach(jbchild, jbvalues) {
 			if(jbchild->tag == JSON_STRING) {
 				struct devices_t *dev = NULL;
 				if(devices_get(jbchild->string_, &dev) == 0) {
 					if((javalues = json_find_member(jto, "value")) != NULL) {
-						jachild = json_first_child(javalues);
-						while(jachild) {
+						json_foreach(jachild, javalues) {
 							if(jachild->tag == JSON_STRING) {
 								state = jachild->string_;
 								struct protocols_t *tmp = dev->protocols;
@@ -231,7 +223,6 @@ static int checkArguments(struct rules_actions_t *obj) {
 							} else {
 								return -1;
 							}
-							jachild = jachild->next;
 						}
 					} else {
 						return -1;
@@ -243,7 +234,6 @@ static int checkArguments(struct rules_actions_t *obj) {
 			} else {
 				return -1;
 			}
-			jbchild = jbchild->next;
 		}
 	}
 	return 0;
@@ -345,11 +335,7 @@ static void *thread(void *param) {
 		while(opt) {
 			if(strcmp(opt->name, "state") == 0) {
 				if(opt->values->type == JSON_STRING) {
-					if((old_state = MALLOC(strlen(opt->values->string_)+1)) == NULL) {
-						fprintf(stderr, "out of memory\n");
-						exit(EXIT_FAILURE);
-					}
-					strcpy(old_state, opt->values->string_);
+					old_state = STRDUP_OR_EXIT(opt->values->string_);
 					match = 1;
 				}
 				break;
@@ -373,11 +359,7 @@ static void *thread(void *param) {
 					jstate = json_find_element(javalues, 0);
 					if(jstate != NULL && jstate->tag == JSON_STRING) {
 						state = jstate->string_;
-						if((new_state = MALLOC(strlen(state)+1)) == NULL) {
-							fprintf(stderr, "out of memory\n");
-							exit(EXIT_FAILURE);
-						}
-						strcpy(new_state, state);
+						new_state = STRDUP_OR_EXIT(state);
 						/*
 						 * We're not switching when current state is the same as
 						 * the old state.
@@ -421,13 +403,8 @@ static void *thread(void *param) {
 		}
 	}
 
-	if(old_state != NULL) {
-		FREE(old_state);
-	}
-
-	if(new_state != NULL) {
-		FREE(new_state);
-	}
+	FREE(old_state);
+	FREE(new_state);
 
 	event_action_stopped(pth);
 
@@ -443,15 +420,13 @@ static int run(struct rules_actions_t *obj) {
 	if((jdevice = json_find_member(obj->parsedargs, "DEVICE")) != NULL &&
 		 (jto = json_find_member(obj->parsedargs, "TO")) != NULL) {
 		if((jbvalues = json_find_member(jdevice, "value")) != NULL) {
-			jbchild = json_first_child(jbvalues);
-			while(jbchild) {
+			json_foreach(jbchild, jbvalues) {
 				if(jbchild->tag == JSON_STRING) {
 					struct devices_t *dev = NULL;
 					if(devices_get(jbchild->string_, &dev) == 0) {
 						event_action_thread_start(dev, action_switch->name, thread, obj);
 					}
 				}
-				jbchild = jbchild->next;
 			}
 		}
 	}

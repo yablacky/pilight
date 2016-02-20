@@ -58,7 +58,7 @@ struct conf_hardware_t *conf_hardware;
 #include "../hardware/hardware_header.h"
 
 #ifndef _WIN32
-static void hardware_remove(char *name) {
+static void hardware_remove(const char *name) {
 	struct hardware_t *currP, *prevP;
 
 	prevP = NULL;
@@ -75,6 +75,7 @@ static void hardware_remove(char *name) {
 			logprintf(LOG_DEBUG, "removed config hardware module %s", currP->id);
 			FREE(currP->id);
 			options_delete(currP->options);
+			FREE(currP->comment);
 			FREE(currP);
 
 			break;
@@ -84,11 +85,9 @@ static void hardware_remove(char *name) {
 #endif
 
 void hardware_register(struct hardware_t **hw) {
-	if((*hw = MALLOC(sizeof(struct hardware_t))) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
+	*hw = MALLOC_OR_EXIT(sizeof(**hw));
 	(*hw)->options = NULL;
+	(*hw)->comment = NULL;
 	(*hw)->wait = 0;
 	(*hw)->stop = 0;
 	(*hw)->running = 0;
@@ -117,11 +116,7 @@ void hardware_register(struct hardware_t **hw) {
 }
 
 void hardware_set_id(hardware_t *hw, const char *id) {
-	if((hw->id = MALLOC(strlen(id)+1)) == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(EXIT_FAILURE);
-	}
-	strcpy(hw->id, id);
+	hw->id = STRDUP_OR_EXIT(id);
 }
 
 static int hardware_gc(void) {
@@ -145,6 +140,7 @@ static int hardware_gc(void) {
 		}
 		FREE(htmp->id);
 		options_delete(htmp->options);
+		FREE(htmp->comment);
 		hardware = hardware->next;
 		FREE(htmp);
 	}
@@ -170,9 +166,11 @@ static JsonNode *hardware_sync(int level, const char *display) {
 	struct conf_hardware_t *tmp = conf_hardware;
 	struct JsonNode *root = json_mkobject();
 	while(tmp) {
+		json_append_comment(root, tmp->hardware->comment);
 		struct JsonNode *module = json_mkobject();
 		struct options_t *options = tmp->hardware->options;
 		while(options) {
+			json_append_comment(module, options->comment);
 			if(options->vartype == JSON_NUMBER) {
 				json_append_member(module, options->name, json_mknumber(options->number_, 0));
 			} else if(options->vartype == JSON_STRING) {
@@ -190,171 +188,178 @@ static JsonNode *hardware_sync(int level, const char *display) {
 static int hardware_parse(JsonNode *root) {
 	struct conf_hardware_t *hnode = NULL;
 	struct conf_hardware_t *tmp_confhw = NULL;
-	struct options_t *hw_options = NULL;
-	struct hardware_t *tmp_hardware = NULL;
+	struct options_t *hw_option = NULL;
 	struct hardware_t *hw = NULL;
 
+	JsonNode *jmodule = NULL;
 	JsonNode *jvalues = NULL;
-	JsonNode *jchilds = json_first_child(root);
 
-	int i = 0, have_error = 0, match = 0;
+	int i = 0, have_error = 0;
 
-	while(jchilds) {
+	const char *hw_commentv[10]; size_t hw_commentn = 0;
+	json_foreach_and_all(jmodule, root) {
+		if(json_is_comment(jmodule)) {
+			if(hw_commentn < countof(hw_commentv)) {
+				hw_commentv[hw_commentn++] = jmodule->string_;
+			}
+			continue;
+		}
 		i++;
 		/* A hardware module can only be a JSON object */
-		if(jchilds->tag != JSON_OBJECT) {
-			logprintf(LOG_ERR, "config hardware module #%d \"%s\", invalid format", i, jchilds->key);
+		if(jmodule->tag != JSON_OBJECT) {
+			char *json = json_encode(jmodule);
+			logprintf(LOG_ERR, "config hardware module #%d invalid format. Expected { ... } found %s", i, json);
+			json_free(json);
 			have_error = 1;
 			goto clear;
-		} else {
-			/* Check if defined hardware module exists */
-			tmp_hardware = hardware;
-			match = 0;
-			while(tmp_hardware) {
-				if(strcmp(tmp_hardware->id, jchilds->key) == 0) {
-					hw = tmp_hardware;
-					match = 1;
-					break;
-				}
-				tmp_hardware = tmp_hardware->next;
+		}
+		/* Check if defined hardware module exists */
+		for(hw = hardware; hw; hw = hw->next) {
+			if(strcmp(hw->id, jmodule->key) == 0) {
+				break;
 			}
-			if(match == 0) {
-				logprintf(LOG_ERR, "config hardware module #%d \"%s\" does not exist", i, jchilds->key);
+		
+		}
+		if(hw == NULL) {
+			logprintf(LOG_ERR, "config hardware module #%d \"%s\" does not exist", i, jmodule->key);
+			have_error = 1;
+			goto clear;
+		}
+		if(hw->options == NULL) {
+			logprintf(LOG_ERR, "config hardware module #%d \"%s\" exist but is no properly defined", i, jmodule->key);
+			have_error = 1;
+			goto clear;
+		}
+
+		/* Check for duplicate hardware modules */
+		for(tmp_confhw = conf_hardware; tmp_confhw; tmp_confhw = tmp_confhw->next) {
+			/* Only allow one module of the same name */
+			if(strcmp(tmp_confhw->hardware->id, jmodule->key) == 0) {
+				logprintf(LOG_ERR, "config hardware module #%d \"%s\", duplicate", i, jmodule->key);
 				have_error = 1;
 				goto clear;
 			}
-
-			/* Check for duplicate hardware modules */
-			tmp_confhw = conf_hardware;
-			while(tmp_confhw) {
-				/* Only allow one module of the same name */
-				if(strcmp(tmp_confhw->hardware->id, jchilds->key) == 0) {
-					logprintf(LOG_ERR, "config hardware module #%d \"%s\", duplicate", i, jchilds->key);
-					have_error = 1;
-					goto clear;
-				}
-				/* And only allow one module covering the same frequency */
-				if(tmp_confhw->hardware->hwtype == hw->hwtype) {
-					logprintf(LOG_ERR, "config hardware module #%d \"%s\", duplicate freq.", i, jchilds->key);
-					have_error = 1;
-					goto clear;
-				}
-				tmp_confhw = tmp_confhw->next;
+			/* And only allow one module covering the same frequency */
+			if(tmp_confhw->hardware->hwtype == hw->hwtype) {
+				logprintf(LOG_ERR, "config hardware module #%d \"%s\", duplicate freq.", i, jmodule->key);
+				have_error = 1;
+				goto clear;
 			}
-
-			/* Check if all options required by the hardware module are present */
-			hw_options = hw->options;
-			while(hw_options) {
-				match = 0;
-				jvalues = json_first_child(jchilds);
-				while(jvalues) {
-					if(jvalues->tag == JSON_NUMBER || jvalues->tag == JSON_STRING) {
-						if(strcmp(jvalues->key, hw_options->name) == 0 && hw_options->argtype == OPTION_HAS_VALUE) {
-							match = 1;
-							break;
-						}
-					}
-					jvalues = jvalues->next;
-				}
-				if(match == 0) {
-					logprintf(LOG_ERR, "config hardware module #%d \"%s\", setting \"%s\" missing", i, jchilds->key, hw_options->name);
-					have_error = 1;
-					goto clear;
-				} else {
-					/* Check if setting contains a valid value */
-#if !defined(__FreeBSD__) && !defined(_WIN32)
-					regex_t regex;
-					int reti;
-					char *stmp = NULL;
-
-					if(jvalues->tag == JSON_NUMBER) {
-						if((stmp = REALLOC(stmp, sizeof(jvalues->number_))) == NULL) {
-							fprintf(stderr, "out of memory\n");
-							exit(EXIT_FAILURE);
-						}
-						sprintf(stmp, "%d", (int)jvalues->number_);
-					} else if(jvalues->tag == JSON_STRING) {
-						if((stmp = REALLOC(stmp, strlen(jvalues->string_)+1)) == NULL) {
-							fprintf(stderr, "out of memory\n");
-							exit(EXIT_FAILURE);
-						}
-						strcpy(stmp, jvalues->string_);
-					}
-					if(hw_options->mask != NULL) {
-						reti = regcomp(&regex, hw_options->mask, REG_EXTENDED);
-						if(reti) {
-							logprintf(LOG_ERR, "could not compile regex");
-							exit(EXIT_FAILURE);
-						}
-						reti = regexec(&regex, stmp, 0, NULL, 0);
-						if(reti == REG_NOMATCH || reti != 0) {
-							logprintf(LOG_ERR, "config hardware module #%d \"%s\", setting \"%s\" invalid", i, jchilds->key, hw_options->name);
-							have_error = 1;
-							regfree(&regex);
-							goto clear;
-						}
-						regfree(&regex);
-					}
-					FREE(stmp);
-#endif
-				}
-				hw_options = hw_options->next;
-			}
-
-			/* Check for any settings that are not valid for this hardware module */
-			jvalues = json_first_child(jchilds);
-			while(jvalues) {
-				match = 0;
-				if(jvalues->tag == JSON_NUMBER || jvalues->tag == JSON_STRING) {
-					hw_options = hw->options;
-					while(hw_options) {
-						if(strcmp(jvalues->key, hw_options->name) == 0 && jvalues->tag == hw_options->vartype) {
-							if(hw_options->vartype == JSON_NUMBER) {
-								options_set_number(&hw_options, hw_options->id, jvalues->number_);
-							} else if(hw_options->vartype == JSON_STRING) {
-								options_set_string(&hw_options, hw_options->id, jvalues->string_);
-							}
-							match = 1;
-							break;
-						}
-						hw_options = hw_options->next;
-					}
-					if(match == 0) {
-						logprintf(LOG_ERR, "config hardware module #%d \"%s\", setting \"%s\" invalid", i, jchilds->key, jvalues->key);
-						have_error = 1;
-						goto clear;
-					}
-				}
-				jvalues = jvalues->next;
-			}
-
-			if(hw->settings != NULL) {
-				/* Sync all settings with the hardware module */
-				jvalues = json_first_child(jchilds);
-				while(jvalues) {
-					if(hw->settings(jvalues) == EXIT_FAILURE) {
-						logprintf(LOG_ERR, "config hardware module #%d \"%s\", setting \"%s\" invalid", i, jchilds->key, jvalues->key);
-						have_error = 1;
-						goto clear;
-					}
-					jvalues = jvalues->next;
-				}
-			}
-
-			if((hnode = MALLOC(sizeof(struct conf_hardware_t))) == NULL) {
-				fprintf(stderr, "out of memory\n");
-				exit(EXIT_FAILURE);
-			}
-			hnode->hardware = hw;
-			hnode->next = conf_hardware;
-			conf_hardware = hnode;
 		}
-		jchilds = jchilds->next;
+
+		/* Check if all options required by the hardware module are present */
+		for(hw_option = hw->options->next; hw_option; hw_option = hw_option->next) {
+			if(hw_option->argtype == OPTION_HAS_VALUE) {
+				jvalues = json_find_member(jmodule, hw_option->name);
+			} else jvalues = NULL;	// ????
+
+			if(jvalues == NULL) {
+				logprintf(LOG_ERR, "config hardware module #%d \"%s\", setting \"%s\" missing", i, jmodule->key, hw_option->name);
+				have_error = 1;
+				goto clear;
+			}
+			/* Check if setting contains a valid value */
+			if(hw_option->mask != NULL) {
+				char btmp[64] = { 0 }; const char *stmp = btmp;
+
+				if(jvalues->tag == JSON_NUMBER) {
+					sprintf(btmp, "%d", (int)jvalues->number_);
+				} else if(jvalues->tag == JSON_STRING) {
+					stmp = jvalues->string_ ? jvalues->string_ : btmp;
+				} else {
+					logprintf(LOG_ERR, "config hardware module #%d \"%s\", setting \"%s\" is not number or string", i, jmodule->key, hw_option->name);
+					have_error = 1;
+					goto clear;
+				}
+#if !defined(__FreeBSD__) && !defined(_WIN32)
+				regex_t regex;
+				int reti;
+
+				reti = regcomp(&regex, hw_option->mask, REG_EXTENDED);
+				if(reti) {
+					logprintf(LOG_ERR, "could not compile regex");
+					exit(EXIT_FAILURE);
+				}
+				reti = regexec(&regex, stmp, 0, NULL, 0);
+				if(reti == REG_NOMATCH || reti != 0) {
+					logprintf(LOG_ERR, "config hardware module #%d \"%s\", setting \"%s\" invalid", i, jmodule->key, hw_option->name);
+					have_error = 1;
+					regfree(&regex);
+					goto clear;
+				}
+				regfree(&regex);
+#endif
+			}
+		}
+
+		/* Check for any settings that are not valid for this hardware module */
+		const char *opt_commentv[10]; size_t opt_commentn = 0;
+		hw_option = NULL;
+		json_foreach_and_all(jvalues, jmodule) {
+			if(json_is_comment(jvalues)) {
+				if(opt_commentn < countof(opt_commentv)) {
+					opt_commentv[opt_commentn++] = jvalues->string_;
+				}
+				continue;
+			}
+			if(jvalues->tag == JSON_NUMBER || jvalues->tag == JSON_STRING) {
+				for(hw_option = hw->options; hw_option; hw_option = hw_option->next) {
+					if(strcmp(jvalues->key, hw_option->name) == 0 && jvalues->tag == hw_option->vartype) {
+						break;
+					}
+				}
+				if(hw_option == NULL) {
+					logprintf(LOG_ERR, "config hardware module #%d \"%s\", setting \"%s\" invalid", i, jmodule->key, jvalues->key);
+					have_error = 1;
+					goto clear;
+				}
+				if(hw_option->vartype == JSON_NUMBER) {
+					options_set_number(&hw_option, hw_option->id, jvalues->number_);
+				} else if(hw_option->vartype == JSON_STRING) {
+					options_set_string(&hw_option, hw_option->id, jvalues->string_);
+				}
+				if(opt_commentn > 0) {
+					FREE(hw_option->comment);
+					hw_option->comment = str_join("\n", opt_commentn, opt_commentv);
+					opt_commentn = 0; 
+				}
+			}
+			opt_commentn = 0; 
+		}
+		if(opt_commentn > 0) {
+			// no place where to assign that trailing comment ...
+			logprintf(LOG_WARNING, "config hardware module #%d \"%s\": comments behind last option dismissed", i, jmodule->key );
+		}
+
+		if(hw->settings != NULL) {
+			/* Sync all settings with the hardware module */
+			json_foreach(jvalues, jmodule) {
+				if(hw->settings(jvalues) == EXIT_FAILURE) {
+					logprintf(LOG_ERR, "config hardware module #%d \"%s\", setting \"%s\" invalid", i, jmodule->key, jvalues->key);
+					have_error = 1;
+					goto clear;
+				}
+			}
+		}
+
+		if(hw_commentn > 0) {
+			FREE(hw->comment);
+			hw->comment = str_join("\n", hw_commentn, hw_commentv);
+			hw_commentn = 0;
+		}
+
+		hnode = MALLOC_OR_EXIT(sizeof(*hnode));
+		hnode->hardware = hw;
+		hnode->next = conf_hardware;
+		conf_hardware = hnode;
+		hw_commentn = 0;
 	}
 
-	if(tmp_confhw != NULL) {
-		FREE(tmp_confhw);
+	if(hw_commentn > 0) {
+		// no place where to assign that trailing comment ...
+		logprintf(LOG_WARNING, "config hardware: comments behind last module definition dismissed");
 	}
+
 clear:
 	return have_error;
 }
@@ -374,93 +379,81 @@ void hardware_init(void) {
 	void *handle = NULL;
 	void (*init)(void);
 	void (*compatibility)(struct module_t *module);
-	char path[PATH_MAX];
 	struct module_t module;
-	char pilight_version[strlen(PILIGHT_VERSION)+1];
-	char pilight_commit[3];
+	const char pilight_version[] = PILIGHT_VERSION;
 	char *hardware_root = NULL;
-	int check1 = 0, check2 = 0, valid = 1, hardware_root_free = 0;
-	strcpy(pilight_version, PILIGHT_VERSION);
+	const char *tmpstr = NULL;
+	int check1 = 0, check2 = 0, valid = 1;
 
 	struct dirent *file = NULL;
 	DIR *d = NULL;
 	struct stat s;
 
-	memset(pilight_commit, '\0', 3);
-
-	if(settings_find_string("hardware-root", &hardware_root) != 0) {
+	if(settings_find_string("hardware-root", &tmpstr) != 0) {
 		/* If no hardware root was set, use the default hardware root */
-		if((hardware_root = MALLOC(strlen(HARDWARE_ROOT)+2)) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
-		strcpy(hardware_root, HARDWARE_ROOT);
-		hardware_root_free = 1;
+		tmpstr =  HARDWARE_ROOT;
 	}
-	size_t len = strlen(hardware_root);
-
+	size_t len = strlen(tmpstr);
+	hardware_root = MALLOC_OR_EXIT(len + 2);	// 1 for trailing '/' we may add.
+	strcpy(hardware_root, tmpstr);
 	if(hardware_root[len-1] != '/') {
 		strcat(hardware_root, "/");
 	}
 
 	if((d = opendir(hardware_root))) {
 		while((file = readdir(d)) != NULL) {
-			memset(path, '\0', PATH_MAX);
-			sprintf(path, "%s%s", hardware_root, file->d_name);
-			if(stat(path, &s) == 0) {
-				/* Check if file */
-				if(S_ISREG(s.st_mode)) {
-					if(strstr(file->d_name, ".so") != NULL) {
-						valid = 1;
+			char path[strlen(hardware_root) + strlen(file->d_name) + 1];
+			strcpy(path, hardware_root); strcat(path, file->d_name);
+			if(stat(path, &s) != 0) {
+				continue;
+			}
+			/* Check if file */
+			if(!S_ISREG(s.st_mode)) {
+				continue;
+			}
+			if(strstr(file->d_name, ".so") == NULL) {
+				continue;
+			}
+			if((handle = dso_load(path)) == NULL) {
+				continue;
+			}
+			valid = 1;
+			init = dso_function(handle, "init");
+			compatibility = dso_function(handle, "compatibility");
+			if(init == NULL || compatibility == NULL ) {
+				continue;
+			}
+			compatibility(&module);
+			if(module.name != NULL && module.version != NULL && module.reqversion != NULL) {
+				if((check1 = vercmp(module.reqversion, pilight_version)) > 0) {
+					valid = 0;
+				}
+				if(check1 == 0 && module.reqcommit != NULL) {
+					char pilight_commit[64] = { 0 };
+					sscanf(HASH, "v%*[0-9].%*[0-9]-%[0-9]-%*[0-9a-zA-Z\n\r]", pilight_commit);
 
-						if((handle = dso_load(path)) != NULL) {
-							init = dso_function(handle, "init");
-							compatibility = dso_function(handle, "compatibility");
-							if(init != NULL && compatibility != NULL ) {
-								compatibility(&module);
-								if(module.name != NULL && module.version != NULL && module.reqversion != NULL) {
-									char ver[strlen(module.reqversion)+1];
-									strcpy(ver, module.reqversion);
-
-									if((check1 = vercmp(ver, pilight_version)) > 0) {
-										valid = 0;
-									}
-									if(check1 == 0 && module.reqcommit != NULL) {
-										char com[strlen(module.reqcommit)+1];
-										strcpy(com, module.reqcommit);
-										sscanf(HASH, "v%*[0-9].%*[0-9]-%[0-9]-%*[0-9a-zA-Z\n\r]", pilight_commit);
-
-										if(strlen(pilight_commit) > 0 && (check2 = vercmp(com, pilight_commit)) > 0) {
-											valid = 0;
-										}
-									}
-
-									if(valid == 1) {
-										char tmp[strlen(module.name)+1];
-										strcpy(tmp, module.name);
-										hardware_remove(tmp);
-										init();
-										logprintf(LOG_DEBUG, "loaded config hardware module %s v%s", file->d_name, module.version);
-									} else {
-										if(module.reqcommit != NULL) {
-											logprintf(LOG_ERR, "config hardware module %s requires at least pilight v%s (commit %s)", file->d_name, module.reqversion, module.reqcommit);
-										} else {
-											logprintf(LOG_ERR, "config hardware module %s requires at least pilight v%s", file->d_name, module.reqversion);
-										}
-									}
-								} else {
-									logprintf(LOG_ERR, "invalid module %s", file->d_name);
-								}
-							}
-						}
+					if(strlen(pilight_commit) > 0 && (check2 = vercmp(module.reqcommit, pilight_commit)) > 0) {
+						valid = 0;
 					}
 				}
+
+				if(valid == 1) {
+					hardware_remove(module.name);
+					init();
+					logprintf(LOG_DEBUG, "loaded config hardware module %s v%s", file->d_name, module.version);
+				} else {
+					if(module.reqcommit != NULL) {
+						logprintf(LOG_ERR, "config hardware module %s requires at least pilight v%s (commit %s)", file->d_name, module.reqversion, module.reqcommit);
+					} else {
+						logprintf(LOG_ERR, "config hardware module %s requires at least pilight v%s", file->d_name, module.reqversion);
+					}
+				}
+			} else {
+				logprintf(LOG_ERR, "invalid module %s", file->d_name);
 			}
 		}
 		closedir(d);
 	}
-	if(hardware_root_free) {
-		FREE(hardware_root);
-	}
+	FREE(hardware_root);
 #endif
 }

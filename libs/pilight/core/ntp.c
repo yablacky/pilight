@@ -93,7 +93,8 @@ int ntp_gc(void) {
 void *ntpthread(void *param) {
 	struct sockaddr_in servaddr;
 	struct pkt msg;
-	char ip[INET_ADDRSTRLEN+1], **ntpservers = NULL, name[25];
+	char ip[INET_ADDRSTRLEN+1], name[25];
+	const char **ntpservers = NULL;
 	unsigned int nrservers = 0;
 	int sockfd = 0, firstrun = 1, interval = 86400;
 	int counter = 0, ntptime = -1,  x = 0, timeout = 3;
@@ -103,10 +104,7 @@ void *ntpthread(void *param) {
 
 	while(1) {
 		sprintf(name, "ntpserver%d", nrservers);
-		if((ntpservers = REALLOC(ntpservers, sizeof(char *)*(nrservers+1))) == NULL) {
-			fprintf(stderr, "out of memory\n");
-			exit(EXIT_FAILURE);
-		}
+		ntpservers = REALLOC_OR_EXIT(ntpservers, sizeof(char *)*(nrservers+1));
 		if((x = settings_find_string(name, &ntpservers[nrservers])) == 0) {
 			nrservers++;
 		} else {

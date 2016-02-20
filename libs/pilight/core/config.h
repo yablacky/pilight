@@ -46,4 +46,37 @@ int config_set_file(char *settfile);
 char *config_get_file(void);
 void config_init(void);
 
+/*
+ *	These are macros so they can be used for allocation and traversion
+ *	of various node types (as long they have a "name" and "next" member).
+ *	CONFIG_APPEND_NODE_TO_LIST(node, head) and CONFIG_PREPEND_NODE_TO_LIS(node, head)
+ *	are NULL pointer-safe (do nothing if node is NULL).
+ */
+#define CONFIG_ALLOC_UNNAMED_NODE(node) ((node) = memset(MALLOC_OR_EXIT(sizeof(*(node))), 0, sizeof(*(node))))
+
+#define CONFIG_ALLOC_NAMED_NODE(node, the_name) do {		\
+		CONFIG_ALLOC_UNNAMED_NODE(node);		\
+		(node)->name = STRDUP_OR_EXIT(the_name);	\
+	} while(0)
+
+#define CONFIG_APPEND_NODE_TO_LIST(node, head) do {		\
+		if ((node) == NULL) break;			\
+		/* trick: use (node)->next as iterator */	\
+		(node)->next = (head);				\
+		if((node)->next != NULL) {			\
+			while((node)->next->next != NULL)	\
+				(node)->next = (node)->next->next;	\
+			(node)->next->next = (node);		\
+			(node)->next = NULL;			\
+		} else {					\
+			(head) = (node);			\
+		}						\
+	} while (0)
+
+#define CONFIG_PREPEND_NODE_TO_LIST(node, head) do {		\
+		if ((node) == NULL) break;			\
+		(node)->next = (head);				\
+		(head) = (node);				\
+	} while (0)
+
 #endif

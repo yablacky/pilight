@@ -58,8 +58,8 @@ static void *thread(void *param) {
 	struct JsonNode *json = (struct JsonNode *)node->param;
 	struct JsonNode *jid = NULL;
 	struct JsonNode *jchild = NULL;
-	char *ip = NULL;
-	char *pstate = NULL;
+	const char *ip = NULL;
+	const char *pstate = NULL;
 	double itmp = 0.0;
 	int state = 0, nrloops = 0, interval = 1;
 

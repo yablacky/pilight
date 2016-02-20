@@ -517,8 +517,10 @@ static char* get_timestamp(char *buf, size_t maxlen, const time_t *timer) {
 	return buf;
 }
 
-static void add_timestamp(JsonNode *object, const time_t *timer) {
-	const char timestamp_key[] = "received-timestamp";
+static void add_timestamp(JsonNode *object, const char *timestamp_key, const time_t *timer) {
+	if (timestamp_key == NULL) {
+		timestamp_key = "timestamp";
+	}
 	char timbuf[64];
 	if(!json_find_member(object, timestamp_key) && get_timestamp(timbuf, sizeof(timbuf), timer) != NULL) {
 		json_append_member(object, timestamp_key, json_mkstring(timbuf));
@@ -543,7 +545,7 @@ static void receiver_create_message(protocol_t *protocol) {
 			if(protocol->repeats > -1) {
 				json_append_member(jmessage, "repeats", json_mknumber(protocol->repeats, 0));
 			}
-			add_timestamp(jmessage, NULL);
+			add_timestamp(jmessage, "received-timestamp", NULL);
 			char *output = json_stringify(jmessage, NULL);
 			struct JsonNode *json = json_decode(output);
 			broadcast_queue(protocol->id, json, RECEIVER);
@@ -2023,7 +2025,7 @@ void *pilight_stats(void *param) {
 						}
 						tmp_clients = tmp_clients->next;
 					}
-					add_timestamp(procProtocol->message, &cpu_ram_time);
+					add_timestamp(procProtocol->message, "measured-timestamp", &cpu_ram_time);
 					pilight.broadcast(procProtocol->id, procProtocol->message, STATS);
 					json_delete(procProtocol->message);
 					procProtocol->message = NULL;

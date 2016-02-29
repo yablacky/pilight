@@ -92,11 +92,15 @@ int main_gc(void) {
 	return EXIT_SUCCESS;
 }
 
+#define OUR_DIV(a, b) ((double)(a) / (double)(b))
+#define stat_fmt " %2.1f"
+
 void *receiveOOK(void *param) {
-	int duration = 0, iLoop = 0, len = 0;
+	int duration = 0, iLoop = 0, len = 0, dura_line_sum = 0, iLine = 0, jj = 0;
 	size_t lines = 0;
 
 	int pulses[min_pulses < 1 ? 1 : min_pulses];
+	int line_pulses[pulses_per_line < 1 ? 1 : pulses_per_line];
 
 	struct hardware_t *hw = (hardware_t *)param;
 	while(main_loop && hw->receiveOOK) {
@@ -105,24 +109,29 @@ void *receiveOOK(void *param) {
 			iLoop++;
 			if(min_pulses > 0) {
 				if(iLoop < min_pulses) {
-					pulses[iLoop] = duration;
-				} else if(iLoop == min_pulses) {
-					len = printf("%6u %s:", ++lines, hw->id) - 1; // don't count the ':' - is added by line_fmt.
-					for(iLoop = 1; iLoop < min_pulses; iLoop++) {
-						if(iLoop > 1 && (iLoop-1)%pulses_per_line == 0) {
-							printf(line_fmt, len, (iLoop-1));
-						}
-						printf(pulse_fmt, pulses[iLoop]);
-					}
-					if(iLoop > 1 && (iLoop-1)%pulses_per_line == 0) {
-						printf(line_fmt, len, (iLoop-1));
-					}
-					printf(pulse_fmt, duration);
+					pulses[iLoop - 1] = duration;
 				} else {
-					if((iLoop-1)%pulses_per_line == 0) {
-						printf(line_fmt, len, (iLoop-1));
+					pulses[min_pulses - 1] = duration;
+					int ii = iLoop - 1, iOfs = min_pulses - iLoop;	// ii + iOfs --> min_pulses - 1
+
+					if(iLoop == min_pulses) {
+						len = printf("%6u %s:", ++lines, hw->id) - 1; // don't count the ':' - is added by line_fmt.
+						ii = iOfs = 0;
 					}
-					printf(pulse_fmt, duration);
+
+					for(; ii < iLoop; ii++) {
+						if(ii > 0 && ii%pulses_per_line == 0) {
+							printf(" |");
+							for(jj = 0; jj < iLine; jj++) {
+								printf(stat_fmt, OUR_DIV(pulses_per_line*line_pulses[jj], dura_line_sum));
+							}
+							dura_line_sum = iLine = 0;
+							printf(line_fmt, len, ii);
+						}
+						printf(pulse_fmt, pulses[ii + iOfs]);
+						dura_line_sum += line_pulses[iLine++] = pulses[ii + iOfs];
+					}
+
 				}
 
 				if(duration > 5100) {
@@ -134,6 +143,7 @@ void *receiveOOK(void *param) {
 						}
 					}
 					iLoop = 0;
+					dura_line_sum = iLine = 0;
 				}
 			}
 			else if(linefeed == 1) {

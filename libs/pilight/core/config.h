@@ -79,4 +79,42 @@ void config_init(void);
 		(head) = (node);				\
 	} while (0)
 
+
+/*
+ *	Following macros are for queues with separate head and tail
+ *	pointers. And where the node has only a ->next pointer.
+ *	They are also NULL poiner safe.
+ */
+
+#define CONFIG_APPEND_NODE_TO_TAIL(node, head, tail) do {	\
+		if ((node) == NULL) break;			\
+	/*	(node)->prev = (tail);	*/			\
+		(node)->next = NULL;				\
+		if ((tail) == NULL) {				\
+			(head) = (tail) = (node);		\
+		} else {					\
+			(tail)->next = (node);			\
+			(tail) = (node);			\
+		}						\
+	} while (0)
+
+#define CONFIG_PREPEND_NODE_TO_HEAD(node, head, tail) do {	\
+		if ((node) == NULL) break;			\
+	/*	(node)->prev = NULL;	*/			\
+		(node)->next = (head);				\
+		if ((head) == NULL) {				\
+			(head) = (tail) = (node);		\
+		} else {					\
+	/*		(head)->prev = (node);	*/		\
+			(head) = (node);			\
+		}						\
+	} while (0)
+
+#define CONFIG_REMOVE_NODE_FROM_HEAD(node, head, tail) do {	\
+		if ((node) == NULL) break;			\
+		if (((head) = (node)->next) == NULL) {		\
+			(tail) = NULL;				\
+		}						\
+	} while (0)
+
 #endif

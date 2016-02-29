@@ -326,7 +326,7 @@ static int nano433Receive(struct rawcode_t *r) {
 #endif
 
 	r->length = 0;
-	memset(r->pulses, 0, MAXPULSESTREAMLENGTH);
+	memset(r->pulses, 0, sizeof(r->pulses));
 
 	running = 1;
 

@@ -55,6 +55,7 @@ static unsigned short linefeed = 0;
 static int min_pulses = 0;
 static int pulses_per_line = 0;
 
+static const char spare_fmt[] = "      ";
 static const char pulse_fmt[] = " %5d";
 static const char line_fmt[] = "\n%*d:";
 
@@ -99,65 +100,90 @@ void *receiveOOK(void *param) {
 	int duration = 0, iLoop = 0, len = 0, dura_line_sum = 0, iLine = 0, jj = 0;
 	size_t lines = 0;
 
+#ifdef _WIN32
+	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+#else
+	/* Make sure the pilight receiving gets
+	   the highest priority available */
+	struct sched_param sched =  { 0 };
+	sched.sched_priority = 70;
+	pthread_setschedparam(pthread_self(), SCHED_FIFO, &sched);
+#endif
+
 	int pulses[min_pulses < 1 ? 1 : min_pulses];
 	int line_pulses[pulses_per_line < 1 ? 1 : pulses_per_line];
 
 	struct hardware_t *hw = (hardware_t *)param;
 	while(main_loop && hw->receiveOOK) {
 		duration = hw->receiveOOK();
-		if(duration > 0) {
-			iLoop++;
-			if(min_pulses > 0) {
-				if(iLoop < min_pulses) {
-					pulses[iLoop - 1] = duration;
-				} else {
-					pulses[min_pulses - 1] = duration;
-					int ii = iLoop - 1, iOfs = min_pulses - iLoop;	// ii + iOfs --> min_pulses - 1
-
-					if(iLoop == min_pulses) {
-						len = printf("%6u %s:", ++lines, hw->id) - 1; // don't count the ':' - is added by line_fmt.
-						ii = iOfs = 0;
-					}
-
-					for(; ii < iLoop; ii++) {
-						if(ii > 0 && ii%pulses_per_line == 0) {
-							printf(" |");
-							for(jj = 0; jj < iLine; jj++) {
-								printf(stat_fmt, OUR_DIV(pulses_per_line*line_pulses[jj], dura_line_sum));
-							}
-							dura_line_sum = iLine = 0;
-							printf(line_fmt, len, ii);
-						}
-						printf(pulse_fmt, pulses[ii + iOfs]);
-						dura_line_sum += line_pulses[iLine++] = pulses[ii + iOfs];
-					}
-
-				}
-
-				if(duration > 5100) {
-					if(iLoop >= min_pulses) {
-						printf(line_fmt, len, iLoop);
-						printf(" -#: %d\n", iLoop);
-						if(iLoop >= pulses_per_line) {
-							printf("\n");	// space line after large reports.
-						}
-					}
-					iLoop = 0;
-					dura_line_sum = iLine = 0;
-				}
-			}
-			else if(linefeed == 1) {
-				if(duration > 5100) {
-					printf(" %d -#: %d\n%s: ",duration, iLoop, hw->id);
-					iLoop = 0;
-				} else {
-					printf(" %d", duration);
-				}
+		if(duration <= 0) {
+			continue;
+		}
+		iLoop++;
+		if(min_pulses > 0) {
+			if(iLoop < min_pulses) {
+				pulses[iLoop - 1] = duration;
 			} else {
-				printf("%s: %d\n", hw->id, duration);
+				pulses[min_pulses - 1] = duration;
+				int ii = iLoop - 1, iOfs = min_pulses - iLoop;	// ii + iOfs --> min_pulses - 1
+
+				if(iLoop == min_pulses) {
+					len = printf("%6u %s:", ++lines, hw->id) - 1; // don't count the ':' - is added by line_fmt.
+					ii = iOfs = 0;
+				}
+
+				for(; ii < iLoop; ii++) {
+					if(ii > 0 && ii%pulses_per_line == 0) {
+						printf(" |");
+						for(jj = 0; jj < iLine; jj++) {
+							printf(stat_fmt, OUR_DIV(pulses_per_line*line_pulses[jj], dura_line_sum));
+						}
+						dura_line_sum = iLine = 0;
+						printf(line_fmt, len, ii);
+					}
+					printf(pulse_fmt, pulses[ii + iOfs]);
+					dura_line_sum += line_pulses[iLine++] = pulses[ii + iOfs];
+				}
+
+			}
+
+			if(duration > 5100) {
+				if(iLoop >= min_pulses) {
+					for(jj = iLine; jj < pulses_per_line; jj++) {
+						printf(spare_fmt);
+					}
+					printf(" |");
+					for(jj = 0; jj < iLine; jj++) {
+						printf(stat_fmt, OUR_DIV(pulses_per_line*line_pulses[jj], dura_line_sum));
+					}
+					dura_line_sum = iLine = 0;
+
+					printf(line_fmt, len, iLoop);
+					printf(" -#: %d", iLoop);
+					char buf[128];
+					struct timeval now;
+					gettimeofday(&now, NULL);
+					strftime(buf, sizeof(buf), "%F %H:%M:%S", localtime(&now.tv_sec));
+					printf(" [%s.%06u]\n", buf, (unsigned int) now.tv_usec);
+					if(iLoop >= pulses_per_line) {
+						printf("\n");	// space line after large reports.
+					}
+				}
+				iLoop = 0;
+				dura_line_sum = iLine = 0;
 			}
 		}
-	};
+		else if(linefeed == 1) {
+			if(duration > 5100) {
+				printf(" %d -#: %d\n%s: ",duration, iLoop, hw->id);
+				iLoop = 0;
+			} else {
+				printf(" %d", duration);
+			}
+		} else {
+			printf("%s: %d\n", hw->id, duration);
+		}
+	}
 	return NULL;
 }
 

@@ -26,34 +26,37 @@
 #include <unistd.h>
 
 #include "irq.h"
-#include "gc.h"
-#include "log.h"
-#include "mem.h"
+#include "common.h"
 #ifndef _WIN32
+	#include "gc.h"
+	#include "log.h"
+	#include "mem.h"
 	#include "../../wiringx/wiringX.h"
 #endif
 
 typedef struct timestamp_t {
-	unsigned long first;
-	unsigned long second;
+	struct timeval first;
+	struct timeval second;
 } timestamp_t;
 
-timestamp_t timestamp;
+static timestamp_t timestamp;
 
 /* Attaches an interrupt handler to a specific GPIO pin
    Whenever an rising, falling or changing interrupt occurs
-   the function given as the last argument will be called */
+   the function given as the last argument will be called.
+ * @return int Microseconds since last interrupt. 0 if no interrupt within 1 second, -1 on error.
+ */
 int irq_read(int gpio) {
 #ifndef _WIN32
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	int x = waitForInterrupt(gpio, 1000);
 	if(x > 0) {
-		struct timeval tv;
-		gettimeofday(&tv, NULL);
 		timestamp.first = timestamp.second;
-		timestamp.second = 1000000 * (unsigned int)tv.tv_sec + (unsigned int)tv.tv_usec;
-		return (int)timestamp.second-(int)timestamp.first;
+		gettimeofday(&timestamp.second, NULL);
+		if (!can_timeval_diff(timestamp.first, timestamp.second))
+			return 0;
+		return (int) get_timeval_diff_usec(timestamp.first, timestamp.second);
 	}
 	return x;
 #else

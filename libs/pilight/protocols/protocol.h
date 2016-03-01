@@ -26,6 +26,7 @@
 		#endif
 	#endif
 #endif
+#include <sys/time.h>	// struct timeval
 #include <pthread.h>
 
 #include "defines.h"
@@ -87,8 +88,8 @@ typedef struct protocol_t {
 	struct JsonNode *message;
 
 	int repeats;
-	unsigned long first;
-	unsigned long second;
+	struct timeval first;
+	struct timeval second;
 
 	int *raw;
 

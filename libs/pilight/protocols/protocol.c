@@ -215,8 +215,9 @@ void protocol_register(protocol_t **proto) {
 	(*proto)->threads = NULL;
 
 	(*proto)->repeats = 0;
-	(*proto)->first = 0;
-	(*proto)->second = 0;
+	static const typeof((*proto)->first) zero_time = { 0 };
+	(*proto)->first = zero_time;
+	(*proto)->second = zero_time;
 
 	(*proto)->raw = NULL;
 

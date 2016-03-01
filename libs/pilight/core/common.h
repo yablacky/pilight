@@ -95,4 +95,18 @@ int file_get_contents(const char *file, char **content);
 int json_find_number(const JsonNode *object_or_array, const char *name, double *out);
 int json_find_string(const JsonNode *object_or_array, const char *name, const char **out);
 
+/*
+ * can_timeval_diff() checks for initialized monotone time values and
+ * is a recommended sanity call that can be done before calling
+ * get_timeval_diff_usec() which just * omputes without overflow checks.
+ */
+#define can_timeval_diff(olderT, newerT)				( \
+	(olderT).tv_sec != 0 &&            /* very 1st call */		  \
+	(newerT).tv_sec >= (olderT).tv_sec /* system-time change? */	)
+
+#define get_timeval_diff_usec(olderT, newerT)			( \
+	( (newerT).tv_sec  - (olderT).tv_sec) * 1000000UL	  \
+	+ (newerT).tv_usec - (olderT).tv_usec			)
+
+
 #endif

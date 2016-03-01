@@ -98,7 +98,7 @@ int main_gc(void) {
 
 void *receiveOOK(void *param) {
 	int duration = 0, iLoop = 0, len = 0, dura_line_sum = 0, iLine = 0, jj = 0;
-	size_t lines = 0;
+	size_t lines = 0, dura_total_sum = 0;
 
 #ifdef _WIN32
 	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
@@ -159,7 +159,8 @@ void *receiveOOK(void *param) {
 					dura_line_sum = iLine = 0;
 
 					printf(line_fmt, len, iLoop);
-					printf(" -#: %d", iLoop);
+					printf(" -#: %d. SUM: %u + %d = %u", iLoop,
+						dura_total_sum, duration, dura_total_sum+duration);
 					char buf[128];
 					struct timeval now;
 					gettimeofday(&now, NULL);
@@ -170,7 +171,10 @@ void *receiveOOK(void *param) {
 					}
 				}
 				iLoop = 0;
-				dura_line_sum = iLine = 0;
+				dura_total_sum = dura_line_sum = iLine = 0;
+			}
+			else {
+				dura_total_sum += duration;
 			}
 		}
 		else if(linefeed == 1) {

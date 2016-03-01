@@ -190,8 +190,6 @@ static int sockfd = 0;
 static pthread_t logpth;
 /* While loop conditions */
 static unsigned short main_loop = 1;
-/* Reset repeats after a certain amount of time */
-static struct timeval tv;
 /* Are we running standalone */
 static int standalone = 0;
 /* Do we need to connect to a master server:port? */
@@ -605,17 +603,12 @@ void *receive_parse_code(void *param) {
 
 					if(protocol->validate() == 0) {
 						logprintf(LOG_DEBUG, "possible %s protocol", protocol->id);
-						gettimeofday(&tv, NULL);
-						if(protocol->first > 0) {
-							protocol->first = protocol->second;
-						}
-						protocol->second = 1000000 * (unsigned int)tv.tv_sec + (unsigned int)tv.tv_usec;
-						if(protocol->first == 0) {
-							protocol->first = protocol->second;
-						}
 
 						/* Reset # of repeats after a certain delay */
-						if(((int)protocol->second-(int)protocol->first) > 500000) {
+						protocol->first = protocol->second;
+						gettimeofday(&protocol->second, NULL);
+						if(can_timeval_diff(protocol->first, protocol->second) &&
+								get_timeval_diff_usec(protocol->first, protocol->second) > 500000) {
 							protocol->repeats = 0;
 						}
 

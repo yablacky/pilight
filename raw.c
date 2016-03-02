@@ -185,6 +185,7 @@ void *receiveOOK(void *param) {
 		if(iLoop >= pulses_per_line) {
 			printf("\n");	// space line after large reports.
 		}
+		iLoop = 0;
 	}
 	return NULL;
 }

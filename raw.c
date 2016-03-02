@@ -97,8 +97,7 @@ int main_gc(void) {
 #define stat_fmt " %2.1f"
 
 void *receiveOOK(void *param) {
-	int duration = 0, iLoop = 0, len = 0, dura_line_sum = 0, iLine = 0, jj = 0;
-	size_t lines = 0, dura_total_sum = 0;
+	int duration = 0, iLoop = 0;
 
 #ifdef _WIN32
 	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
@@ -110,82 +109,81 @@ void *receiveOOK(void *param) {
 	pthread_setschedparam(pthread_self(), SCHED_FIFO, &sched);
 #endif
 
-	int pulses[min_pulses < 1 ? 1 : min_pulses];
-	int line_pulses[pulses_per_line < 1 ? 1 : pulses_per_line];
-
 	struct hardware_t *hw = (hardware_t *)param;
+	if(min_pulses == 0) {
+		while(main_loop && hw->receiveOOK) {
+			duration = hw->receiveOOK();
+			if(duration > 0) {
+				iLoop++;
+				if(linefeed == 1) {
+					if(duration > 5100) {
+						printf(" %d -#: %d\n%s: ",duration, iLoop, hw->id);
+						iLoop = 0;
+					} else {
+						printf(" %d", duration);
+					}
+				} else {
+					printf("%s: %d\n", hw->id, duration);
+				}
+			}
+		}
+		return NULL;
+	}
+
+	int pulses[MAXPULSESTREAMLENGTH];
+	size_t lines = 0;
+
 	while(main_loop && hw->receiveOOK) {
 		duration = hw->receiveOOK();
 		if(duration <= 0) {
 			continue;
 		}
-		iLoop++;
-		if(min_pulses > 0) {
-			if(iLoop < min_pulses) {
-				pulses[iLoop - 1] = duration;
-			} else {
-				pulses[min_pulses - 1] = duration;
-				int ii = iLoop - 1, iOfs = min_pulses - iLoop;	// ii + iOfs --> min_pulses - 1
-
-				if(iLoop == min_pulses) {
-					len = printf("%6u %s:", ++lines, hw->id) - 1; // don't count the ':' - is added by line_fmt.
-					ii = iOfs = 0;
-				}
-
-				for(; ii < iLoop; ii++) {
-					if(ii > 0 && ii%pulses_per_line == 0) {
-						printf(" |");
-						for(jj = 0; jj < iLine; jj++) {
-							printf(stat_fmt, OUR_DIV(pulses_per_line*line_pulses[jj], dura_line_sum));
-						}
-						dura_line_sum = iLine = 0;
-						printf(line_fmt, len, ii);
-					}
-					printf(pulse_fmt, pulses[ii + iOfs]);
-					dura_line_sum += line_pulses[iLine++] = pulses[ii + iOfs];
-				}
-
-			}
-
-			if(duration > 5100) {
-				if(iLoop >= min_pulses) {
-					for(jj = iLine; jj < pulses_per_line; jj++) {
-						printf(spare_fmt);
-					}
-					printf(" |");
-					for(jj = 0; jj < iLine; jj++) {
-						printf(stat_fmt, OUR_DIV(pulses_per_line*line_pulses[jj], dura_line_sum));
-					}
-					dura_line_sum = iLine = 0;
-
-					printf(line_fmt, len, iLoop);
-					printf(" -#: %d. SUM: %u + %d = %u", iLoop,
-						dura_total_sum, duration, dura_total_sum+duration);
-					char buf[128];
-					struct timeval now;
-					gettimeofday(&now, NULL);
-					strftime(buf, sizeof(buf), "%F %H:%M:%S", localtime(&now.tv_sec));
-					printf(" [%s.%06u]\n", buf, (unsigned int) now.tv_usec);
-					if(iLoop >= pulses_per_line) {
-						printf("\n");	// space line after large reports.
-					}
-				}
-				iLoop = 0;
-				dura_total_sum = dura_line_sum = iLine = 0;
-			}
-			else {
-				dura_total_sum += duration;
-			}
+		pulses[iLoop++] = duration;
+		if(!(duration > 5100 || iLoop >= countof(pulses))) {
+			continue;
 		}
-		else if(linefeed == 1) {
-			if(duration > 5100) {
-				printf(" %d -#: %d\n%s: ",duration, iLoop, hw->id);
-				iLoop = 0;
-			} else {
-				printf(" %d", duration);
+		if(iLoop < min_pulses) {
+			iLoop = 0;
+			continue;
+		}
+
+		size_t dura_total_sum = 0, dura_line_sum = 0;
+		int ii, jj;
+		int len = printf("%6u %s:", ++lines, hw->id) - 1; // don't count the ':' - is added by line_fmt.
+		jj = 0;
+		for(ii = 0; ii < iLoop; ii++) {
+			if(ii > 0 && ii%pulses_per_line == 0) {
+				printf(" |");
+				for(; jj < ii; jj++) {
+					printf(stat_fmt, OUR_DIV(pulses_per_line*pulses[jj], dura_line_sum));
+				}
+				dura_line_sum = 0;
+				printf(line_fmt, len, ii);
 			}
-		} else {
-			printf("%s: %d\n", hw->id, duration);
+			printf(pulse_fmt, pulses[ii]);
+			dura_line_sum += pulses[ii];
+			dura_total_sum += pulses[ii];
+		}
+
+		for(; ii % pulses_per_line; ii++) {
+			printf(spare_fmt);
+		}
+		printf(" |");
+		for(; jj < iLoop; jj++) {
+			printf(stat_fmt, OUR_DIV(pulses_per_line*pulses[jj], dura_line_sum));
+		}
+		dura_line_sum = 0;
+
+		printf(line_fmt, len, iLoop);
+		printf(" -#: %d. SUM: %u + %d = %u", iLoop,
+			dura_total_sum, duration, dura_total_sum+duration);
+		char buf[128];
+		struct timeval now;
+		gettimeofday(&now, NULL);
+		strftime(buf, sizeof(buf), "%F %H:%M:%S", localtime(&now.tv_sec));
+		printf(" [%s.%06u]\n", buf, (unsigned int) now.tv_usec);
+		if(iLoop >= pulses_per_line) {
+			printf("\n");	// space line after large reports.
 		}
 	}
 	return NULL;

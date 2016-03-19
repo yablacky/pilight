@@ -80,11 +80,23 @@ void logwrite(char *line) {
 		if((lf = fopen(logfile, "a")) == NULL) {
 			filelog = 0;
 		} else {
-			fwrite(line, sizeof(char), strlen(line), lf);
+			fputs(line, lf);
 			fflush(lf);
 			fclose(lf);
 			lf = NULL;
 		}
+	} else if(shelllog && pthinitialized) {
+		fputs(line, stderr);
+	}
+}
+
+static void init_logqueue() {
+	if(pthinitialized == 0) {
+		pthread_mutexattr_init(&logqueue_attr);
+		pthread_mutexattr_settype(&logqueue_attr, PTHREAD_MUTEX_RECURSIVE);
+		pthread_mutex_init(&logqueue_lock, &logqueue_attr);
+		pthread_cond_init(&logqueue_signal, NULL);
+		pthinitialized = 1;
 	}
 }
 
@@ -148,6 +160,9 @@ int log_gc(void) {
 }
 
 void logprintf(int prio, const char *format_str, ...) {
+	if(loglevel < prio) {
+		return;
+	}
 	struct timeval tv;
 	struct tm tm, *ptm;
 	va_list ap, apcpy;
@@ -216,8 +231,8 @@ void logprintf(int prio, const char *format_str, ...) {
 		line[pos++]='\n';
 		line[pos++]='\0';
 	}
-	if(shelllog == 1) {
-		fprintf(stderr, "%s", line);
+	if(shelllog == 1 && !pthinitialized) {
+		fputs(line, stderr);
 	}
 #ifdef _WIN32
 	if(prio == LOG_ERR && strstr(progname, "daemon") != NULL && pilight.running == 0) {
@@ -231,7 +246,7 @@ void logprintf(int prio, const char *format_str, ...) {
 			}
 			if(logqueue_number < 1024) {
 				struct logqueue_t *node = MALLOC_OR_EXIT(sizeof(logqueue_t));
-				node->line = STRDUP_OR_EXIT(line);
+				node->line = line; line = NULL;
 				node->next = NULL;
 
 				if(logqueue_number == 0) {
@@ -299,13 +314,7 @@ void logperror(int prio, const char *s) {
 
 void log_file_enable(void) {
 	filelog = 1;
-	if(pthinitialized == 0) {
-		pthread_mutexattr_init(&logqueue_attr);
-		pthread_mutexattr_settype(&logqueue_attr, PTHREAD_MUTEX_RECURSIVE);
-		pthread_mutex_init(&logqueue_lock, &logqueue_attr);
-		pthread_cond_init(&logqueue_signal, NULL);
-		pthinitialized = 1;
-	}
+	init_logqueue();
 }
 
 void log_file_disable(void) {
@@ -325,6 +334,12 @@ int log_file_set(const char *log) {
 	struct stat sb;
 	char *logpath = NULL;
 	FILE *lf = NULL;
+
+	if(log == NULL) {
+		FREE(logpath);
+		logpath = NULL;
+		return EXIT_SUCCESS;
+	}
 
 	char buf[strlen(log) + 1];
 	strcpy(buf, log);

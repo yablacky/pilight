@@ -226,7 +226,7 @@ static int         spiFds[2];
 #endif
 
 int raspberrypiValidGPIO(int pin) {
-	if(pinToGpio[pin] != -1) {
+	if(pin >= 0 && pin < 64 && pinToGpio[pin] != -1) {
 		return 0;
 	}
 	return -1;
@@ -333,6 +333,8 @@ static int piBoardRev(void) {
 	}
 }
 
+static int raspberrypiWaitForInterrupt(int pin, int ms);
+
 static int setup(void) {
 	int fd;
 	int boardRev;
@@ -364,18 +366,23 @@ static int setup(void) {
 		wiringXLog(LOG_ERR, "raspberrypi->setup: mmap (GPIO) failed: %s", strerror(errno));
 		return -1;
 	}
+	close(fd);
+
+	if (mlock(&raspberrypiWaitForInterrupt, 1) < 0) {
+		wiringXLog(LOG_WARNING, "raspberrypi->setup: Unable to mlock(raspberrypiWaitForInterrupt): %s", strerror(errno));
+	}
 
 	return 0;
 }
 
 static int raspberrypiDigitalRead(int pin) {
-	if(pinModes[pin] != INPUT && pinModes[pin] != SYS) {
-		wiringXLog(LOG_ERR, "raspberrypi->digitalRead: Trying to write to pin %d, but it's not configured as input", pin);
+	if(raspberrypiValidGPIO(pin) != 0) {
+		wiringXLog(LOG_ERR, "raspberrypi->digitalRead: Invalid pin number %d", pin);
 		return -1;
 	}
 
-	if(raspberrypiValidGPIO(pin) != 0) {
-		wiringXLog(LOG_ERR, "raspberrypi->digitalRead: Invalid pin number %d", pin);
+	if(pinModes[pin] != INPUT && pinModes[pin] != SYS) {
+		wiringXLog(LOG_ERR, "raspberrypi->digitalRead: Trying to read from pin %d, but it's not configured as input", pin);
 		return -1;
 	}
 
@@ -392,13 +399,13 @@ static int raspberrypiDigitalRead(int pin) {
 }
 
 static int raspberrypiDigitalWrite(int pin, int value) {
-	if(pinModes[pin] != OUTPUT) {
-		wiringXLog(LOG_ERR, "raspberrypi->digitalWrite: Trying to write to pin %d, but it's not configured as output", pin);
+	if(raspberrypiValidGPIO(pin) != 0) {
+		wiringXLog(LOG_ERR, "raspberrypi->digitalWrite: Invalid pin number %d", pin);
 		return -1;
 	}
 
-	if(raspberrypiValidGPIO(pin) != 0) {
-		wiringXLog(LOG_ERR, "raspberrypi->digitalWrite: Invalid pin number %d", pin);
+	if(pinModes[pin] != OUTPUT) {
+		wiringXLog(LOG_ERR, "raspberrypi->digitalWrite: Trying to write to pin %d, but it's not configured as output", pin);
 		return -1;
 	}
 
@@ -438,9 +445,9 @@ static int raspberrypiPinMode(int pin, int mode) {
 }
 
 static int raspberrypiISR(int pin, int mode) {
-	int i = 0, fd = 0, match = 0, count = 0;
+	int fd = 0, match = 0;
 	const char *sMode = NULL;
-	char path[35], c, line[120];
+	char path[64], line[120];
 	FILE *f = NULL;
 
 	if(raspberrypiValidGPIO(pin) != 0) {
@@ -462,17 +469,24 @@ static int raspberrypiISR(int pin, int mode) {
 	}
 
 	sprintf(path, "/sys/class/gpio/gpio%d/value", pinToGpio[pin]);
-	fd = open(path, O_RDWR);
+	fd = open(path, O_RDONLY);
 
 	if(fd < 0) {
 		if((f = fopen("/sys/class/gpio/export", "w")) == NULL) {
 			wiringXLog(LOG_ERR, "raspberrypi->isr: Unable to open GPIO export interface: %s", strerror(errno));
 			return -1;
 		}
-
 		fprintf(f, "%d\n", pinToGpio[pin]);
 		fclose(f);
+
+		fd = open(path, O_RDONLY);
+		if(fd < 0) {
+			wiringXLog(LOG_ERR, "raspberrypi->isr: Unable to open GPIO value interface: %s", strerror(errno));
+			return -1;
+		}
 	}
+	close(fd);
+	fd = -1;
 
 	sprintf(path, "/sys/class/gpio/gpio%d/direction", pinToGpio[pin]);
 	if((f = fopen(path, "w")) == NULL) {
@@ -532,18 +546,18 @@ static int raspberrypiISR(int pin, int mode) {
 	sprintf(path, "/sys/class/gpio/gpio%d/edge", pinToGpio[pin]);
 	changeOwner(path);
 
-	ioctl(fd, FIONREAD, &count);
-	for(i=0; i<count; ++i) {
-		read(fd, &c, 1);
+	fcntl(sysFds[pin], F_SETFL, O_NONBLOCK);
+	// If even the very first call to raspberrypiWaitForInterrupt() should wait
+	// for an interrupt, we have to initially read from the value file:
+	if (1) {
+		read(sysFds[pin], line, 1);
 	}
-	close(fd);
-
 	return 0;
 }
 
 static int raspberrypiWaitForInterrupt(int pin, int ms) {
 	int x = 0;
-	uint8_t c = 0;
+	char c = 0;
 	struct pollfd polls;
 
 	if(raspberrypiValidGPIO(pin) != 0) {
@@ -556,18 +570,17 @@ static int raspberrypiWaitForInterrupt(int pin, int ms) {
 		return -1;
 	}
 
-	if(sysFds[pin] == -1) {
-		wiringXLog(LOG_ERR, "raspberrypi->waitForInterrupt: GPIO %d not set as interrupt", pin);
-		return -1;
-	}
-
+	// How to use poll(), read() and lseek() etc. see here:
+	// https://www.kernel.org/doc/Documentation/gpio/sysfs.txt
 	polls.fd = sysFds[pin];
 	polls.events = POLLPRI;
 
-	(void)read(sysFds[pin], &c, 1);
-	lseek(sysFds[pin], 0, SEEK_SET);
-
 	x = poll(&polls, 1, ms);
+	if(x > 0) {
+		lseek(sysFds[pin], 0, SEEK_SET);
+		read(sysFds[pin], &c, 1);
+		return 1;
+	}
 
 	/* Don't react to signals */
 	if(x == -1 && errno == EINTR) {
@@ -583,28 +596,31 @@ static int raspberrypiGC(void) {
 	FILE *f = NULL;
 
 	for(i=0;i<NUM_PINS;i++) {
+		if(sysFds[i] >= 0) {
+			close(sysFds[i]);
+			sysFds[i] = -1;
+		}
 		if(pinModes[i] == OUTPUT) {
 			pinMode(i, INPUT);
 		} else if(pinModes[i] == SYS) {
 			sprintf(path, "/sys/class/gpio/gpio%d/value", pinToGpio[i]);
-			if((fd = open(path, O_RDWR)) > 0) {
+			if((fd = open(path, O_RDWR)) >= 0) {
+				close(fd);
 				if((f = fopen("/sys/class/gpio/unexport", "w")) == NULL) {
 					wiringXLog(LOG_ERR, "raspberrypi->gc: Unable to open GPIO unexport interface: %s", strerror(errno));
+				} else {
+					fprintf(f, "%d\n", pinToGpio[i]);
+					fclose(f);
 				}
-
-				fprintf(f, "%d\n", pinToGpio[i]);
-				fclose(f);
-				close(fd);
 			}
-		}
-		if(sysFds[i] > 0) {
-			close(sysFds[i]);
 		}
 	}
 
 	if(gpio) {
 		munmap((void *)gpio, BLOCK_SIZE);
+		gpio = NULL;
 	}
+
 	return 0;
 }
 

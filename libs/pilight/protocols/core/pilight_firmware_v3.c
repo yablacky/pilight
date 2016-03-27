@@ -50,8 +50,8 @@ static int validate(void) {
 static void createMessage(int version, int high, int low) {
 	pilight_firmware_v3->message = json_mkobject();
 	json_append_member(pilight_firmware_v3->message, "version", json_mknumber(version, 2));
-	json_append_member(pilight_firmware_v3->message, "lpf", json_mknumber(high*10, 0));
-	json_append_member(pilight_firmware_v3->message, "hpf", json_mknumber(low*10, 0));
+	json_append_member(pilight_firmware_v3->message, "lpf", json_mknumber(low*10, 0));
+	json_append_member(pilight_firmware_v3->message, "hpf", json_mknumber(high*10, 0));
 }
 
 static void parseCode(void) {

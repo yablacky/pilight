@@ -20,6 +20,10 @@
 #define _IRQ_H_
 
 int irq_read(int gpio);
-void irq_interrupt(void);
+/*
+ * @param int enable If enabled, irq_read() returns signal high/low info in bit (1<<30)
+ * @return int Previous enable state.
+ */
+int irq_read_ex_enable(int enable);
 
 #endif

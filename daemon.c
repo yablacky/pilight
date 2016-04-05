@@ -71,7 +71,7 @@
 #endif
 
 #ifdef WEBSERVER
-	#ifdef WEBSERVER_HTTPS	
+	#ifdef WEBSERVER_HTTPS
 		#include "libs/polarssl/polarssl/md5.h"
 	#endif
 	#include "libs/pilight/core/webserver.h"
@@ -118,8 +118,13 @@ typedef struct sendqueue_t {
 	struct sendqueue_t *next;
 } sendqueue_t;
 
-static struct sendqueue_t *sendqueue; // head.
-static struct sendqueue_t *sendqueue_tail;
+static struct sendqueue_t * volatile sendqueue_head = NULL;
+static struct sendqueue_t * volatile sendqueue_tail = NULL;
+static int sendqueue_number = 0;
+static pthread_mutex_t sendqueue_lock;
+static pthread_cond_t sendqueue_signal;
+static pthread_mutexattr_t sendqueue_attr;
+static unsigned short sendqueue_init = 0;
 
 typedef struct recvqueue_t {
 	int raw[MAXPULSESTREAMLENGTH];
@@ -129,17 +134,9 @@ typedef struct recvqueue_t {
 	struct recvqueue_t *next;
 } recvqueue_t;
 
-static struct recvqueue_t *recvqueue; // head.
-static struct recvqueue_t *recvqueue_tail;
-
-static pthread_mutex_t sendqueue_lock;
-static pthread_cond_t sendqueue_signal;
-static pthread_mutexattr_t sendqueue_attr;
-static unsigned short sendqueue_init = 0;
-
-static int sendqueue_number = 0;
+static struct recvqueue_t * volatile recvqueue_head = NULL;
+static struct recvqueue_t * volatile recvqueue_tail = NULL;
 static int recvqueue_number = 0;
-
 static pthread_mutex_t recvqueue_lock;
 static pthread_cond_t recvqueue_signal;
 static pthread_mutexattr_t recvqueue_attr;
@@ -152,15 +149,13 @@ typedef struct bcqueue_t {
 	struct bcqueue_t *next;
 } bcqueue_t;
 
-static struct bcqueue_t *bcqueue = NULL; // head.
-static struct bcqueue_t *bcqueue_tail = NULL;
-
+static struct bcqueue_t * volatile bcqueue_head = NULL;
+static struct bcqueue_t * volatile bcqueue_tail = NULL;
+static int bcqueue_number = 0;
 static pthread_mutex_t bcqueue_lock;
 static pthread_cond_t bcqueue_signal;
 static pthread_mutexattr_t bcqueue_attr;
 static unsigned short bcqueue_init = 0;
-
-static int bcqueue_number = 0;
 
 static struct protocol_t *procProtocol;
 
@@ -176,22 +171,31 @@ static const char *pid_file;
 static pid_t pid;
 /* Daemonize or not */
 static int nodaemon = 0;
+
 /* Run tracktracer */
 static int stacktracer = 0;
+
 /* Run thread profiler */
 static int threadprofiler = 0;
+
 /* Are we already running */
-static int running = 1;
+static int volatile running = 1;
+
 /* Are we currently sending code */
-static int sending = 0;
+static int volatile sending = 0;
+
 /* Socket identifier to the server if we are running as client */
 static int sockfd = 0;
+
 /* Thread pointers */
 static pthread_t logpth;
+
 /* While loop conditions */
 static unsigned short main_loop = 1;
+
 /* Are we running standalone */
 static int standalone = 0;
+
 /* Do we need to connect to a master server:port? */
 static char *master_server = NULL;
 static unsigned short master_port = 0;
@@ -243,9 +247,10 @@ static void broadcast_queue(const char *protoname, const struct JsonNode *json, 
 
 	if(main_loop == 1) {
 		pthread_mutex_lock(&bcqueue_lock);
-		if(bcqueue_number <= 1024) {
+		if(bcqueue_number > 1024) {
+			logprintf(LOG_ERR, "broadcast queue full");
+		} else {
 			struct bcqueue_t *bnode = NULL;
-
 			CONFIG_ALLOC_UNNAMED_NODE(bnode);
 
 			char *jstr = json_stringify(json, NULL);
@@ -259,17 +264,8 @@ static void broadcast_queue(const char *protoname, const struct JsonNode *json, 
 			bnode->protoname = STRDUP_OR_EXIT(protoname);
 			bnode->origin = origin;
 
-			if(bcqueue_number == 0) {
-				bcqueue = bnode;
-				bcqueue_tail = bnode;
-			} else {
-				bcqueue_tail->next = bnode;
-				bcqueue_tail = bnode;
-			}
-
+			CONFIG_APPEND_NODE_TO_TAIL(bnode, bcqueue_head, bcqueue_tail);
 			bcqueue_number++;
-		} else {
-			logprintf(LOG_ERR, "broadcast queue full");
 		}
 		pthread_mutex_unlock(&bcqueue_lock);
 		pthread_cond_signal(&bcqueue_signal);
@@ -281,186 +277,192 @@ void *broadcast(void *param) {
 
 	int broadcasted = 0;
 
-	pthread_mutex_lock(&bcqueue_lock);
 	while(main_loop) {
-		if(bcqueue_number > 0) {
-			pthread_mutex_lock(&bcqueue_lock);
+		struct bcqueue_t *bcqueue = NULL;
+		pthread_mutex_lock(&bcqueue_lock);
+		logprintf(LOG_DEBUG, "%s::locked", __FUNCTION__);
 
-			logprintf(LOG_STACK, "%s::unlocked", __FUNCTION__);
-
-			broadcasted = 0;
-			struct JsonNode *jret = NULL;
-			const char *origin = NULL;
-
-			if(json_find_string(bcqueue->jmessage, "origin", &origin) == 0) {
-				if(strcmp(origin, "core") == 0) {
-					double tmp = 0;
-					json_find_number(bcqueue->jmessage, "type", &tmp);
-					char *conf = json_stringify(bcqueue->jmessage, NULL);
-					struct clients_t *tmp_clients = clients;
-					while(tmp_clients) {
-						if(((int)tmp < 0 && tmp_clients->core == 1) ||
-						   ((int)tmp >= 0 && tmp_clients->config == 1) ||
-							 ((int)tmp == PROCESS && tmp_clients->stats == 1)) {
-							socket_write(tmp_clients->id, conf);
-							broadcasted = 1;
-						}
-						tmp_clients = tmp_clients->next;
-					}
-					if(pilight.runmode == ADHOC && sockfd > 0) {
-						struct JsonNode *jupdate = json_decode(conf);
-						json_append_member(jupdate, "action", json_mkstring("update"));
-						char *ret = json_stringify(jupdate, NULL);
-						socket_write(sockfd, ret);
-						broadcasted = 1;
-						json_delete(jupdate);
-						json_free(ret);
-					}
-					if(broadcasted == 1) {
-						logprintf(LOG_DEBUG, "broadcasted: %s", conf);
-					}
-					json_free(conf);
-				} else {
-					/* Update the config */
-					if(devices_update(bcqueue->protoname, bcqueue->jmessage, bcqueue->origin, &jret) == 0) {
-						char *tmp = json_stringify(jret, NULL);
-						struct clients_t *tmp_clients = clients;
-						unsigned short match1 = 0, match2 = 0;
-
-						while(tmp_clients) {
-							if(tmp_clients->config == 1) {
-								struct JsonNode *jtmp = json_decode(tmp);
-								const struct JsonNode *jdevices = json_find_member(jtmp, "devices");
-								if(jdevices != NULL) {
-									match1 = 0;
-									struct gui_values_t *gui_values = NULL;
-									const struct JsonNode *jchilds = NULL;
-									json_foreach(jchilds, jdevices) {
-										match2 = 0;
-										if(jchilds->tag == JSON_STRING) {
-											if((gui_values = gui_media(jchilds->string_)) != NULL) {
-												while(gui_values) {
-													if(gui_values->type == JSON_STRING) {
-														if(strcmp(gui_values->string_, tmp_clients->media) == 0 ||
-															 strcmp(gui_values->string_, "all") == 0 ||
-															 strcmp(tmp_clients->media, "all") == 0) {
-																match1 = 1;
-																match2 = 1;
-														}
-													}
-													gui_values = gui_values->next;
-												}
-											} else {
-												match1 = 1;
-												match2 = 1;
-											}
-										}
-										if(match2 == 0) {
-											jchilds = json_delete_force(jchilds);
-										}
-									}
-								}
-								if(match1 == 1) {
-									char *conf = json_stringify(jtmp, NULL);
-									socket_write(tmp_clients->id, conf);
-									logprintf(LOG_DEBUG, "broadcasted: %s", conf);
-									json_free(conf);
-								}
-								json_delete(jtmp);
-							}
-							tmp_clients = tmp_clients->next;
-						}
-
-						json_free(tmp);
-						json_delete(jret);
-					}
-
-					/* The settings objects inside the broadcast queue is only of interest for the
-					   internal pilight functions. For the outside world we only communicate the
-					   message part of the queue so we remove the settings */
-					char *internal = json_stringify(bcqueue->jmessage, NULL);
-
-					json_delete_force(json_find_member(bcqueue->jmessage, "settings"));
-
-					const struct JsonNode *tmp = json_find_member(bcqueue->jmessage, "action");
-					if(tmp != NULL && tmp->tag == JSON_STRING && strcmp(tmp->string_, "update") == 0) {
-						json_delete_force(tmp);
-					}
-
-					char *out = json_stringify(bcqueue->jmessage, NULL);
-					if(strcmp(bcqueue->protoname, "pilight_firmware") == 0) {
-						const struct JsonNode *code = NULL;
-						if((code = json_find_member(bcqueue->jmessage, "message")) != NULL) {
-							json_find_number(code, "version", &firmware.version);
-							json_find_number(code, "lpf", &firmware.lpf);
-							json_find_number(code, "hpf", &firmware.hpf);
-							if(firmware.version > 0 && firmware.lpf > 0 && firmware.hpf > 0) {
-								registry_set_number("pilight.firmware.version", firmware.version, 0);
-								registry_set_number("pilight.firmware.lpf", firmware.lpf, 0);
-								registry_set_number("pilight.firmware.hpf", firmware.hpf, 0);
-
-								struct JsonNode *jmessage = json_mkobject();
-								struct JsonNode *jcode = json_mkobject();
-								json_append_member(jcode, "version", json_mknumber(firmware.version, 0));
-								json_append_member(jcode, "lpf", json_mknumber(firmware.lpf, 0));
-								json_append_member(jcode, "hpf", json_mknumber(firmware.hpf, 0));
-								json_append_member(jmessage, "values", jcode);
-								json_append_member(jmessage, "origin", json_mkstring("core"));
-								json_append_member(jmessage, "type", json_mknumber(FIRMWARE, 0));
-								char pname[17];
-								strcpy(pname, "pilight-firmware");
-								pilight.broadcast(pname, jmessage, FW);
-								json_delete(jmessage);
-								jmessage = NULL;
-							}
-						}
-					}
-					broadcasted = 0;
-
-					int nrchilds = 0;
-					const struct JsonNode *childs = NULL;
-					json_foreach(childs, bcqueue->jmessage) {
-						nrchilds++;
-					}
-
-					/* Write the message to all receivers */
-					struct clients_t *tmp_clients = clients;
-					while(tmp_clients) {
-						if(tmp_clients->receiver == 1 && tmp_clients->forward == 0) {
-								if(strcmp(out, "{}") != 0 && nrchilds > 1) {
-									socket_write(tmp_clients->id, out);
-									broadcasted = 1;
-								}
-						}
-						tmp_clients = tmp_clients->next;
-					}
-
-					if(pilight.runmode == ADHOC && sockfd > 0) {
-						struct JsonNode *jupdate = json_decode(internal);
-						json_append_member(jupdate, "action", json_mkstring("update"));
-						char *ret = json_stringify(jupdate, NULL);
-						socket_write(sockfd, ret);
-						broadcasted = 1;
-						json_delete(jupdate);
-						json_free(ret);
-					}
-					if((broadcasted == 1 || nodaemon == 1) && (strcmp(out, "{}") != 0 && nrchilds > 1)) {
-						logprintf(LOG_DEBUG, "broadcasted: %s", out);
-					}
-					json_free(internal);
-					json_free(out);
-				}
-			}
-			struct bcqueue_t *tmp = bcqueue;
-			FREE(tmp->protoname);
-			json_delete(tmp->jmessage);
-			bcqueue = bcqueue->next;
-			FREE(tmp);
-			bcqueue_number--;
-			pthread_mutex_unlock(&bcqueue_lock);
-		} else {
+		while(main_loop != 0 && (bcqueue = bcqueue_head) == NULL) {
+			logprintf(LOG_DEBUG, "%s::waiting", __FUNCTION__);
 			pthread_cond_wait(&bcqueue_signal, &bcqueue_lock);
 		}
+		if(main_loop == 0 || bcqueue == NULL) {
+			pthread_mutex_lock(&bcqueue_lock);
+			logprintf(LOG_DEBUG, "%s::unlocked", __FUNCTION__);
+			continue;
+		}
+
+		CONFIG_REMOVE_NODE_FROM_HEAD(bcqueue, bcqueue_head, bcqueue_tail);
+		bcqueue_number--;
+		pthread_mutex_unlock(&bcqueue_lock);
+		logprintf(LOG_DEBUG, "%s::unlocked", __FUNCTION__);
+
+		broadcasted = 0;
+		struct JsonNode *jret = NULL;
+		const char *origin = NULL;
+
+		if(json_find_string(bcqueue->jmessage, "origin", &origin) == 0) {
+			if(strcmp(origin, "core") == 0) {
+				double tmp = 0;
+				json_find_number(bcqueue->jmessage, "type", &tmp);
+				char *conf = json_stringify(bcqueue->jmessage, NULL);
+				struct clients_t *tmp_clients = clients;
+				while(tmp_clients) {
+					if(((int)tmp < 0 && tmp_clients->core == 1) ||
+					   ((int)tmp >= 0 && tmp_clients->config == 1) ||
+						 ((int)tmp == PROCESS && tmp_clients->stats == 1)) {
+						socket_write(tmp_clients->id, conf);
+						broadcasted = 1;
+					}
+					tmp_clients = tmp_clients->next;
+				}
+				if(pilight.runmode == ADHOC && sockfd > 0) {
+					struct JsonNode *jupdate = json_decode(conf);
+					json_append_member(jupdate, "action", json_mkstring("update"));
+					char *ret = json_stringify(jupdate, NULL);
+					socket_write(sockfd, ret);
+					broadcasted = 1;
+					json_delete(jupdate);
+					json_free(ret);
+				}
+				if(broadcasted == 1) {
+					logprintf(LOG_DEBUG, "broadcasted: %s", conf);
+				}
+				json_free(conf);
+			} else {
+				/* Update the config */
+				if(devices_update(bcqueue->protoname, bcqueue->jmessage, bcqueue->origin, &jret) == 0) {
+					char *tmp = json_stringify(jret, NULL);
+					unsigned short match1 = 0, match2 = 0;
+					struct clients_t *tmp_clients = clients;
+
+					for(;tmp_clients; tmp_clients = tmp_clients->next) {
+						if(tmp_clients->config != 1) {
+							continue;
+						}
+						struct JsonNode *jtmp = json_decode(tmp);
+						const struct JsonNode *jdevices = json_find_member(jtmp, "devices");
+						if(jdevices != NULL) {
+							match1 = 0;
+							struct gui_values_t *gui_values = NULL;
+							const struct JsonNode *jchilds = NULL;
+							json_foreach(jchilds, jdevices) {
+								match2 = 0;
+								if(jchilds->tag == JSON_STRING) {
+									if((gui_values = gui_media(jchilds->string_)) != NULL) {
+										while(gui_values) {
+											if(gui_values->type == JSON_STRING) {
+												if(strcmp(gui_values->string_, tmp_clients->media) == 0 ||
+													 strcmp(gui_values->string_, "all") == 0 ||
+													 strcmp(tmp_clients->media, "all") == 0) {
+														match1 = 1;
+														match2 = 1;
+												}
+											}
+											gui_values = gui_values->next;
+										}
+									} else {
+										match1 = 1;
+										match2 = 1;
+									}
+								}
+								if(match2 == 0) {
+									jchilds = json_delete_force(jchilds);
+								}
+							}
+						}
+						if(match1 == 1) {
+							char *conf = json_stringify(jtmp, NULL);
+							socket_write(tmp_clients->id, conf);
+							logprintf(LOG_DEBUG, "broadcasted: %s", conf);
+							json_free(conf);
+						}
+						json_delete(jtmp);
+					}
+
+					json_free(tmp);
+					json_delete(jret);
+				}
+
+				/* The settings objects inside the broadcast queue is only of interest for the
+				   internal pilight functions. For the outside world we only communicate the
+				   message part of the queue so we remove the settings */
+				char *internal = json_stringify(bcqueue->jmessage, NULL);
+
+				json_delete_force(json_find_member(bcqueue->jmessage, "settings"));
+
+				const struct JsonNode *tmp = json_find_member(bcqueue->jmessage, "action");
+				if(tmp != NULL && tmp->tag == JSON_STRING && strcmp(tmp->string_, "update") == 0) {
+					json_delete_force(tmp);
+				}
+
+				char *out = json_stringify(bcqueue->jmessage, NULL);
+				if(strcmp(bcqueue->protoname, "pilight_firmware") == 0) {
+					const struct JsonNode *code = NULL;
+					if((code = json_find_member(bcqueue->jmessage, "message")) != NULL) {
+						json_find_number(code, "version", &firmware.version);
+						json_find_number(code, "lpf", &firmware.lpf);
+						json_find_number(code, "hpf", &firmware.hpf);
+						if(firmware.version > 0 && firmware.lpf > 0 && firmware.hpf > 0) {
+							registry_set_number("pilight.firmware.version", firmware.version, 0);
+							registry_set_number("pilight.firmware.lpf", firmware.lpf, 0);
+							registry_set_number("pilight.firmware.hpf", firmware.hpf, 0);
+
+							struct JsonNode *jmessage = json_mkobject();
+							struct JsonNode *jcode = json_mkobject();
+							json_append_member(jcode, "version", json_mknumber(firmware.version, 0));
+							json_append_member(jcode, "lpf", json_mknumber(firmware.lpf, 0));
+							json_append_member(jcode, "hpf", json_mknumber(firmware.hpf, 0));
+							json_append_member(jmessage, "values", jcode);
+							json_append_member(jmessage, "origin", json_mkstring("core"));
+							json_append_member(jmessage, "type", json_mknumber(FIRMWARE, 0));
+							const char pname[] = "pilight-firmware";
+							pilight.broadcast(pname, jmessage, FW);
+							json_delete(jmessage);
+							jmessage = NULL;
+						}
+					}
+				}
+				broadcasted = 0;
+
+				int nrchilds = 0;
+				const struct JsonNode *childs = NULL;
+				json_foreach(childs, bcqueue->jmessage) {
+					nrchilds++;
+				}
+
+				/* Write the message to all receivers */
+				struct clients_t *tmp_clients = clients;
+				while(tmp_clients) {
+					if(tmp_clients->receiver == 1 && tmp_clients->forward == 0) {
+							if(strcmp(out, "{}") != 0 && nrchilds > 1) {
+								socket_write(tmp_clients->id, out);
+								broadcasted = 1;
+							}
+					}
+					tmp_clients = tmp_clients->next;
+				}
+
+				if(pilight.runmode == ADHOC && sockfd > 0) {
+					struct JsonNode *jupdate = json_decode(internal);
+					json_append_member(jupdate, "action", json_mkstring("update"));
+					char *ret = json_stringify(jupdate, NULL);
+					socket_write(sockfd, ret);
+					broadcasted = 1;
+					json_delete(jupdate);
+					json_free(ret);
+				}
+				if((broadcasted == 1 || nodaemon == 1) && (strcmp(out, "{}") != 0 && nrchilds > 1)) {
+					logprintf(LOG_DEBUG, "broadcasted: %s", out);
+				}
+				json_free(internal);
+				json_free(out);
+			}
+		}
+
+		FREE(bcqueue->protoname);
+		json_delete(bcqueue->jmessage);
+		FREE(bcqueue);
 	}
 	return (void *)NULL;
 }
@@ -471,9 +473,18 @@ static void receive_queue(int *raw, int rawlen, int plslen, int hwtype) {
 	int i = 0;
 
 	if(main_loop == 1) {
+		if(rawlen > countof(((struct recvqueue_t*)0)->raw))
+		{
+			logprintf(LOG_ERR, "received a too long message (%d raw items)",rawlen);
+			return;
+		}
 		pthread_mutex_lock(&recvqueue_lock);
-		if(recvqueue_number <= 1024) {
-			struct recvqueue_t *rnode = MALLOC_OR_EXIT(sizeof(struct recvqueue_t));
+		if(recvqueue_number > 1024) {
+			logprintf(LOG_ERR, "receiver queue full");
+		} else {
+			struct recvqueue_t *rnode = NULL;
+			CONFIG_ALLOC_UNNAMED_NODE(rnode);
+
 			for(i=0;i<rawlen;i++) {
 				rnode->raw[i] = raw[i];
 			}
@@ -481,17 +492,8 @@ static void receive_queue(int *raw, int rawlen, int plslen, int hwtype) {
 			rnode->plslen = plslen;
 			rnode->hwtype = hwtype;
 
-			if(recvqueue_number == 0) {
-				recvqueue = rnode;
-				recvqueue_tail = rnode;
-			} else {
-				recvqueue_tail->next = rnode;
-				recvqueue_tail = rnode;
-			}
-
+			CONFIG_APPEND_NODE_TO_TAIL(rnode, recvqueue_head, recvqueue_tail);
 			recvqueue_number++;
-		} else {
-			logprintf(LOG_ERR, "receiver queue full");
 		}
 		pthread_mutex_unlock(&recvqueue_lock);
 		pthread_cond_signal(&recvqueue_signal);
@@ -499,7 +501,7 @@ static void receive_queue(int *raw, int rawlen, int plslen, int hwtype) {
 }
 
 static char* get_timestamp(char *buf, size_t maxlen, const time_t *timer) {
-	if (buf == NULL || maxlen < 64) {
+	if(buf == NULL || maxlen < 64) {
 		return NULL;
 	}
         time_t loc = timer == NULL ? time(NULL) : *timer, gmt;
@@ -521,7 +523,7 @@ static char* get_timestamp(char *buf, size_t maxlen, const time_t *timer) {
 }
 
 static void add_timestamp(JsonNode *object, const char *timestamp_key, const time_t *timer) {
-	if (timestamp_key == NULL) {
+	if(timestamp_key == NULL) {
 		timestamp_key = "timestamp";
 	}
 	char timbuf[64];
@@ -530,7 +532,7 @@ static void add_timestamp(JsonNode *object, const char *timestamp_key, const tim
 	}
 }
 
-static void receiver_create_message(protocol_t *protocol) {
+static void receiver_create_message(protocol_t *protocol, const char *msg_name, size_t msg_id) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	if(protocol->message != NULL) {
@@ -541,6 +543,11 @@ static void receiver_create_message(protocol_t *protocol) {
 
 			json_append_member(jmessage, "message", json_decode(valid));
 			json_append_member(jmessage, "origin", json_mkstring("receiver"));
+
+			char origin_msg_id[strlen(msg_name) + 64];
+			sprintf(origin_msg_id, "%s#%ul", msg_name, msg_id);
+			json_append_member(jmessage, "origin-msg-id", json_mkstring(origin_msg_id));
+
 			json_append_member(jmessage, "protocol", json_mkstring(protocol->id));
 			if(strlen(pilight_uuid) > 0) {
 				json_append_member(jmessage, "uuid", json_mkstring(pilight_uuid));
@@ -548,7 +555,11 @@ static void receiver_create_message(protocol_t *protocol) {
 			if(protocol->repeats > -1) {
 				json_append_member(jmessage, "repeats", json_mknumber(protocol->repeats, 0));
 			}
+
 			add_timestamp(jmessage, "received-timestamp", NULL);
+			static size_t total_message_count = 0;	// no thread-safe increment yet:
+			json_append_member(jmessage, "received-total", json_mknumber(++total_message_count, 0));
+
 			char *output = json_stringify(jmessage, NULL);
 			struct JsonNode *json = json_decode(output);
 			broadcast_queue(protocol->id, json, RECEIVER);
@@ -566,13 +577,16 @@ static void receive_parse_api(struct JsonNode *code, int hwtype) {
 	struct protocol_t *protocol = NULL;
 	struct protocols_t *pnode = protocols;
 
+	static size_t code_count = 0;
+	size_t code_id = ++code_count;
+
 	while(pnode != NULL) {
 		protocol = pnode->listener;
 
 		if(protocol->hwtype == hwtype && protocol->parseCommand != NULL) {
 			protocol->parseCommand(code);
-			receiver_create_message(protocol);
-		}		
+			receiver_create_message(protocol, "code", code_id);
+		}
 		pnode = pnode->next;
 	}
 }
@@ -580,59 +594,69 @@ static void receive_parse_api(struct JsonNode *code, int hwtype) {
 void *receive_parse_code(void *param) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	pthread_mutex_lock(&recvqueue_lock);
-	while(main_loop) {
-		if(recvqueue_number > 0) {
-			pthread_mutex_lock(&recvqueue_lock);
+	while(main_loop != 0) {
+		recvqueue_t *recvqueue = NULL;
+		pthread_mutex_lock(&recvqueue_lock);
+		logprintf(LOG_DEBUG, "%s::locked", __FUNCTION__);
 
-			logprintf(LOG_STACK, "%s::unlocked", __FUNCTION__);
+		while(main_loop != 0 && (recvqueue = recvqueue_head) == NULL) {
+			logprintf(LOG_DEBUG, "%s::waiting", __FUNCTION__);
+			pthread_cond_wait(&recvqueue_signal, &recvqueue_lock);
+			continue;
+		}
+		if(main_loop == 0 || recvqueue  == NULL) {
+			pthread_mutex_unlock(&recvqueue_lock);
+			logprintf(LOG_DEBUG, "%s::unlocked", __FUNCTION__);
+			continue;
+		}
 
-			struct protocol_t *protocol = NULL;
-			struct protocols_t *pnode = protocols;
+		CONFIG_REMOVE_NODE_FROM_HEAD(recvqueue, recvqueue_head, recvqueue_tail);
+		recvqueue_number--;
 
-			while(pnode != NULL && main_loop) {
-				protocol = pnode->listener;
+		static size_t receive_count = 0;
+		size_t receive_id = ++receive_count;
 
-				if((protocol->hwtype == recvqueue->hwtype || protocol->hwtype == -1 || recvqueue->hwtype == -1) &&
-				   (protocol->parseCode != NULL && protocol->validate != NULL)) {
+		pthread_mutex_unlock(&recvqueue_lock);
+		logprintf(LOG_DEBUG, "%s::unlocked", __FUNCTION__);
 
-					if(recvqueue->rawlen < MAXPULSESTREAMLENGTH) {
-						protocol->raw = recvqueue->raw;
-					}
-					protocol->rawlen = recvqueue->rawlen;
+		struct protocols_t *pnode;
+		for(pnode = protocols; pnode != NULL && main_loop; pnode = pnode->next) {
+			struct protocol_t *protocol = pnode->listener;
 
-					if(protocol->validate() == 0) {
-						logprintf(LOG_DEBUG, "possible %s protocol", protocol->id);
-
-						/* Reset # of repeats after a certain delay */
-						protocol->first = protocol->second;
-						gettimeofday(&protocol->second, NULL);
-						if(can_timeval_diff(protocol->first, protocol->second) &&
-								get_timeval_diff_usec(protocol->first, protocol->second) > 500000) {
-							protocol->repeats = 0;
-						}
-
-						protocol->repeats++;
-						if(protocol->parseCode != NULL) {
-							logprintf(LOG_DEBUG, "recevied pulse length of %d", recvqueue->plslen);
-							logprintf(LOG_DEBUG, "caught minimum # of repeats %d of %s", protocol->repeats, protocol->id);
-							logprintf(LOG_DEBUG, "called %s parseRaw()", protocol->id);
-							protocol->parseCode();
-							receiver_create_message(protocol);
-						}
-					}
-				}
-				pnode = pnode->next;
+			if(protocol == NULL || protocol->validate == NULL ||
+			  !(protocol->hwtype == recvqueue->hwtype || protocol->hwtype == -1 || recvqueue->hwtype == -1)) {
+				continue;
 			}
 
-			struct recvqueue_t *tmp = recvqueue;
-			recvqueue = recvqueue->next;
-			FREE(tmp);
-			recvqueue_number--;
-			pthread_mutex_unlock(&recvqueue_lock);
-		} else {
-			pthread_cond_wait(&recvqueue_signal, &recvqueue_lock);
+			if(recvqueue->rawlen < MAXPULSESTREAMLENGTH) {
+				protocol->raw = recvqueue->raw;
+			}
+			protocol->rawlen = recvqueue->rawlen;
+			if(protocol->validate() != 0) {
+				continue;
+			}
+
+			logprintf(LOG_DEBUG, "possible %s protocol", protocol->id);
+
+			/* Reset # of repeats after a certain delay (currently 0.5 sec) */
+			protocol->first = protocol->second;
+			gettimeofday(&protocol->second, NULL);
+			if(can_timeval_diff(protocol->first, protocol->second) &&
+					get_timeval_diff_usec(protocol->first, protocol->second) > 500000) {
+				protocol->repeats = 0;
+			}
+
+			protocol->repeats++;
+			if(protocol->parseCode != NULL) {
+				logprintf(LOG_DEBUG, "recevied pulse length of %d", recvqueue->plslen);
+				logprintf(LOG_DEBUG, "caught minimum # of repeats %d of %s", protocol->repeats, protocol->id);
+				logprintf(LOG_DEBUG, "called %s parseRaw()", protocol->id);
+				protocol->parseCode();
+				receiver_create_message(protocol, "pulse", receive_id);
+			}
 		}
+
+		FREE(recvqueue);
 	}
 	return (void *)NULL;
 }
@@ -647,142 +671,164 @@ void *send_code(void *param) {
 #ifdef _WIN32
 	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 #else
-	struct sched_param sched;
-	memset(&sched, 0, sizeof(sched));
+	struct sched_param sched = { 0 };
 	sched.sched_priority = 80;
 	pthread_setschedparam(pthread_self(), SCHED_FIFO, &sched);
 #endif
 
-	pthread_mutex_lock(&sendqueue_lock);
+	while(main_loop != 0) {
+		static sendqueue_t *sendqueue;
+		pthread_mutex_lock(&sendqueue_lock);
+		logprintf(LOG_DEBUG, "%s::locked", __FUNCTION__);
 
-	while(main_loop) {
-		if(sendqueue_number > 0) {
-			pthread_mutex_lock(&sendqueue_lock);
+		while(main_loop != 0 && (sendqueue = sendqueue_head) == NULL) {
+			logprintf(LOG_DEBUG, "%s::waiting", __FUNCTION__);
+			pthread_cond_wait(&sendqueue_signal, &sendqueue_lock);
+		}
+		if(main_loop == 0 || sendqueue == NULL) {
+			pthread_mutex_unlock(&sendqueue_lock);
+			logprintf(LOG_DEBUG, "%s::unlocked", __FUNCTION__);
+			continue;
+		}
 
-			logprintf(LOG_STACK, "%s::unlocked", __FUNCTION__);
+		CONFIG_REMOVE_NODE_FROM_HEAD(sendqueue, sendqueue_head, sendqueue_tail);
+		sendqueue_head = sendqueue->next;
+		sendqueue_number--;
+		pthread_mutex_unlock(&sendqueue_lock);
+		logprintf(LOG_DEBUG, "%s::unlocked", __FUNCTION__);
 
-			sending = 1;
+		sending = 1;
 
-			struct protocol_t *protocol = sendqueue->protopt;
-			struct hardware_t *hw = NULL;
+		struct protocol_t *protocol = sendqueue->protopt;
+		struct hardware_t *hw = NULL;
 
-			struct JsonNode *message = NULL;
+		struct JsonNode *message = NULL;
 
-			if(sendqueue->message != NULL && strcmp(sendqueue->message, "{}") != 0) {
-				if(json_validate(sendqueue->message, NULL) == true) {
-					if(message == NULL) {
-						message = json_mkobject();
-					}
-					json_append_member(message, "origin", json_mkstring("sender"));
-					json_append_member(message, "protocol", json_mkstring(protocol->id));
-					json_append_member(message, "message", json_decode(sendqueue->message));
-					if(strlen(sendqueue->uuid) > 0) {
-						json_append_member(message, "uuid", json_mkstring(sendqueue->uuid));
-					}
-					json_append_member(message, "repeat", json_mknumber(1, 0));
-					if(receive_while_sending != 0) {
-						json_append_member(message, "receive-while-sending", json_mknumber(receive_while_sending, 0));
-					}
+		if(sendqueue->message != NULL && strcmp(sendqueue->message, "{}") != 0) {
+			if(json_validate(sendqueue->message, NULL) == true) {
+				if(message == NULL) {
+					message = json_mkobject();
+				}
+				json_append_member(message, "origin", json_mkstring("sender"));
+				json_append_member(message, "protocol", json_mkstring(protocol->id));
+				json_append_member(message, "message", json_decode(sendqueue->message));
+				if(strlen(sendqueue->uuid) > 0) {
+					json_append_member(message, "uuid", json_mkstring(sendqueue->uuid));
+				}
+				json_append_member(message, "repeat", json_mknumber(1, 0));
+				if(receive_while_sending) {
+					json_append_member(message, "receive-while-sending", json_mknumber(receive_while_sending, 0));
 				}
 			}
-			if(sendqueue->settings != NULL && strcmp(sendqueue->settings, "{}") != 0) {
-				if(json_validate(sendqueue->settings, NULL) == true) {
-					if(message == NULL) {
-						message = json_mkobject();
-					}
-					json_append_member(message, "settings", json_decode(sendqueue->settings));
+		}
+		if(sendqueue->settings != NULL && strcmp(sendqueue->settings, "{}") != 0) {
+			if(json_validate(sendqueue->settings, NULL) == true) {
+				if(message == NULL) {
+					message = json_mkobject();
 				}
+				json_append_member(message, "settings", json_decode(sendqueue->settings));
 			}
+		}
 
-			struct conf_hardware_t *tmp_confhw = conf_hardware;
-			while(tmp_confhw) {
-				if(protocol->hwtype == tmp_confhw->hardware->hwtype) {
-					hw = tmp_confhw->hardware;
-					break;
-				}
-				tmp_confhw = tmp_confhw->next;
+		struct conf_hardware_t *tmp_confhw = conf_hardware;
+		while(tmp_confhw) {
+			if(protocol->hwtype == tmp_confhw->hardware->hwtype) {
+				hw = tmp_confhw->hardware;
+				break;
 			}
-			if(hw != NULL) {
-				if((hw->comtype == COMOOK || hw->comtype == COMPLSTRAIN) && hw->sendOOK != NULL) {
-					int receiver_wait = hw->receiveOOK != NULL || hw->receivePulseTrain != NULL;
-					if(receive_while_sending) {
-						receiver_wait = 0;
-					}
-					if(receiver_wait) {
-						hw->wait = 1;
-						pthread_mutex_unlock(&hw->lock);
-						pthread_cond_signal(&hw->signal);
-					}
-					logprintf(LOG_DEBUG, "**** RAW CODE ****");
-					if(log_level_get() >= LOG_DEBUG) {
-						for(i=0;i<sendqueue->length;i++) {
-							printf("%d ", sendqueue->code[i]);
-						}
-						printf("\n");
-					}
-					logprintf(LOG_DEBUG, "**** RAW CODE ****");
-
-					if(hw->sendOOK(sendqueue->code, sendqueue->length, protocol->txrpt) == 0) {
-						logprintf(LOG_DEBUG, "successfully send %s code", protocol->id);
-					} else {
-						logprintf(LOG_ERR, "failed to send code");
-					}
-					if(strcmp(protocol->id, "raw") == 0) {
-						int plslen = sendqueue->code[sendqueue->length-1]/PULSE_DIV;
-						receive_queue(sendqueue->code, sendqueue->length, plslen, -1);
-					}
-					if(receiver_wait) {
-						hw->wait = 0;
-						pthread_mutex_unlock(&hw->lock);
-						pthread_cond_signal(&hw->signal);
-					}
-				} else if(hw->comtype == COMAPI && hw->sendAPI != NULL) {
-					if(message != NULL) {				
-						if(hw->sendAPI(message) == 0) {
-							logprintf(LOG_DEBUG, "successfully send %s command", protocol->id);
-						} else {
-							logprintf(LOG_ERR, "failed to send command");
-						}
-					}
+			tmp_confhw = tmp_confhw->next;
+		}
+		if(hw != NULL) {
+			if((hw->comtype == COMOOK || hw->comtype == COMPLSTRAIN) && hw->sendOOK != NULL) {
+				int receiver_wait = hw->receiveOOK != NULL || hw->receivePulseTrain != NULL;
+				if(receive_while_sending) {
+					receiver_wait = 0;
 				}
-			} else {
+				if(receiver_wait) {
+					hw->wait = 1;
+					pthread_cond_signal(&hw->signal);
+					pthread_mutex_lock(&hw->lock);
+				}
+				logprintf(LOG_DEBUG, "**** RAW CODE ****");
+				if(log_level_get() >= LOG_DEBUG) {
+					for(i=0;i<sendqueue->length;i++) {
+						printf("%d ", sendqueue->code[i]);
+					}
+					printf("\n");
+				}
+				logprintf(LOG_DEBUG, "**** RAW CODE ****");
+
+				if(hw->sendOOK(sendqueue->code, sendqueue->length, protocol->txrpt) == 0) {
+					logprintf(LOG_DEBUG, "successfully send %s code", protocol->id);
+				} else {
+					logprintf(LOG_ERR, "failed to send code");
+				}
 				if(strcmp(protocol->id, "raw") == 0) {
 					int plslen = sendqueue->code[sendqueue->length-1]/PULSE_DIV;
 					receive_queue(sendqueue->code, sendqueue->length, plslen, -1);
 				}
+				if(receiver_wait) {
+					hw->wait = 0;
+					pthread_mutex_unlock(&hw->lock);
+					pthread_cond_signal(&hw->signal);
+				}
+			} else if(hw->comtype == COMAPI && hw->sendAPI != NULL) {
+				if(message != NULL) {
+					if(hw->sendAPI(message) == 0) {
+						logprintf(LOG_DEBUG, "successfully send %s command", protocol->id);
+					} else {
+						logprintf(LOG_ERR, "failed to send command");
+					}
+				}
 			}
-			if(message != NULL) {
-				broadcast_queue(sendqueue->protoname, message, sendqueue->origin);
-				json_delete(message);
-				message = NULL;
-			}
-
-			struct sendqueue_t *tmp = sendqueue;
-			if(tmp->message != NULL) {
-				FREE(tmp->message);
-			}
-			if(tmp->settings != NULL) {
-				FREE(tmp->settings);
-			}
-			FREE(tmp->protoname);
-			sendqueue = sendqueue->next;
-			FREE(tmp);
-			sendqueue_number--;
-			sending = 0;
-			pthread_mutex_unlock(&sendqueue_lock);
 		} else {
-			pthread_cond_wait(&sendqueue_signal, &sendqueue_lock);
+			if(strcmp(protocol->id, "raw") == 0) {
+				int plslen = sendqueue->code[sendqueue->length-1]/PULSE_DIV;
+				receive_queue(sendqueue->code, sendqueue->length, plslen, -1);
+			}
 		}
+		if(message != NULL) {
+			broadcast_queue(sendqueue->protoname, message, sendqueue->origin);
+			json_delete(message);
+			message = NULL;
+		}
+
+		sending = 0;
+
+		FREE(sendqueue->message);
+		FREE(sendqueue->settings);
+		FREE(sendqueue->protoname);
+		FREE(sendqueue);
 	}
 	return (void *)NULL;
 }
 
+static int send_queue_nolock(struct JsonNode *json, enum origin_t origin);
+
 /* Send a specific code */
 static int send_queue(struct JsonNode *json, enum origin_t origin) {
 	pthread_mutex_lock(&sendqueue_lock);
+
+	int ret = -1, need_signal = 1;
+	if(sendqueue_number > 1024) {
+		logprintf(LOG_ERR, "send queue full");
+	} else {
+		int need_signal = sendqueue_number;
+		ret = send_queue_nolock(json, origin);
+		need_signal -= sendqueue_number;
+	}
+
+	pthread_mutex_unlock(&sendqueue_lock);
+	if(need_signal != 0) {
+		pthread_cond_signal(&sendqueue_signal);
+	}
+	return ret;
+}
+
+static int send_queue_nolock(struct JsonNode *json, enum origin_t origin) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	int match = 0, raw[MAXPULSESTREAMLENGTH-1];
+	int raw[MAXPULSESTREAMLENGTH];
 	struct timeval tcurrent;
 	struct clients_t *tmp_clients = NULL;
 	const char *uuid = NULL;
@@ -795,8 +841,7 @@ static int send_queue(struct JsonNode *json, enum origin_t origin) {
 #else
 	/* Make sure the pilight sender gets
 	   the highest priority available */
-	struct sched_param sched;
-	memset(&sched, 0, sizeof(sched));
+	struct sched_param sched = { 0 };
 	sched.sched_priority = 80;
 	pthread_setschedparam(pthread_self(), SCHED_FIFO, &sched);
 #endif
@@ -806,6 +851,11 @@ static int send_queue(struct JsonNode *json, enum origin_t origin) {
 	const struct JsonNode *jprotocol = NULL;
 
 	buffer = json_stringify(json, NULL);
+	if(buffer == NULL) {
+		logprintf(LOG_ERR, "failed to generate json code for sending");
+		return -1;
+	}
+
 	tmp_clients = clients;
 	while(tmp_clients) {
 		if(tmp_clients->forward == 1) {
@@ -818,116 +868,107 @@ static int send_queue(struct JsonNode *json, enum origin_t origin) {
 	if((jcode = json_find_member(json, "code")) == NULL) {
 		logprintf(LOG_ERR, "sender did not send any codes");
 		json_delete_force(jcode);
-		pthread_mutex_unlock(&sendqueue_lock);
 		return -1;
-	} else if((jprotocols = json_find_member(jcode, "protocol")) == NULL) {
+	}
+
+	if((jprotocols = json_find_member(jcode, "protocol")) == NULL) {
 		logprintf(LOG_ERR, "sender did not provide a protocol name");
 		json_delete_force(jcode);
-		pthread_mutex_unlock(&sendqueue_lock);
 		return -1;
-	} else {
-		json_find_string(jcode, "uuid", &uuid);
-		/* If we matched a protocol and are not already sending, continue */
-		if(uuid == NULL || (uuid != NULL && strcmp(uuid, pilight_uuid) == 0)) {
-			json_foreach(jprotocol, jprotocols) {
-				if(jprotocol->tag == JSON_STRING) {
-					struct protocols_t *pnode = protocols;
-					/* Retrieve the used protocol */
-					while(pnode) {
-						protocol = pnode->listener;
-						/* Check if the protocol exists */
-						if(protocol_device_exists(protocol, jprotocol->string_) == 0 && match == 0) {
-							match = 1;
-							break;
-						}
-						pnode = pnode->next;
-					}
-					if (pnode != NULL) {
-						break;
-					}
+	}
+
+	/* If we matched a protocol and are not already sending, continue */
+	json_find_string(jcode, "uuid", &uuid);
+	if(uuid != NULL && strcmp(uuid, pilight_uuid) != 0) {
+		return 0;	// already sending.
+	}
+
+	protocol = NULL;
+	json_foreach(jprotocol, jprotocols) {
+		if(jprotocol->tag == JSON_STRING) {
+			struct protocols_t *pnode = protocols;
+			/* Retrieve the used protocol */
+			while(pnode) {
+				/* Check if the protocol exists */
+				if(protocol_device_exists(pnode->listener, jprotocol->string_) == 0) {
+					protocol = pnode->listener;
+					break;
 				}
+				pnode = pnode->next;
 			}
-			memset(raw, 0, MAXPULSESTREAMLENGTH-1);
-			protocol->raw = raw;
-			if(match == 1 && protocol->createCode != NULL) {
-				/* Let the protocol create his code */
-				if(protocol->createCode(jcode) == 0 && main_loop == 1) {
-					if(sendqueue_number <= 1024) {
-						struct sendqueue_t *mnode = MALLOC_OR_EXIT(sizeof(struct sendqueue_t));
-						gettimeofday(&tcurrent, NULL);
-						mnode->origin = origin;
-						mnode->id = 1000000 * (unsigned int)tcurrent.tv_sec + (unsigned int)tcurrent.tv_usec;
-						mnode->message = NULL;
-						if(protocol->message != NULL) {
-							char *jsonstr = json_stringify(protocol->message, NULL);
-							json_delete(protocol->message);
-							if(json_validate(jsonstr, NULL) == true) {
-								mnode->message = jsonstr;
-								jsonstr = NULL;
-							} else {
-								json_free(jsonstr);
-							}
-							protocol->message = NULL;
-						}
-
-						mnode->length = protocol->rawlen;
-						memcpy(mnode->code, protocol->raw, sizeof(int)*protocol->rawlen);
-
-						mnode->protoname = STRDUP_OR_EXIT(protocol->id);
-						mnode->protopt = protocol;
-
-						struct options_t *tmp_options = protocol->options;
-						const char *stmp = NULL;
-						struct JsonNode *jsettings = json_mkobject();
-						const struct JsonNode *jtmp = NULL;
-						while(tmp_options) {
-							if(tmp_options->conftype == DEVICES_SETTING) {
-								if(tmp_options->vartype == JSON_NUMBER &&
-								  (jtmp = json_find_member(jcode, tmp_options->name)) != NULL &&
-								   jtmp->tag == JSON_NUMBER) {
-									json_append_member(jsettings, tmp_options->name, json_mknumber(jtmp->number_, jtmp->decimals_));
-								} else if(tmp_options->vartype == JSON_STRING && json_find_string(jcode, tmp_options->name, &stmp) == 0) {
-									json_append_member(jsettings, tmp_options->name, json_mkstring(stmp));
-								}
-							}
-							tmp_options = tmp_options->next;
-						}
-						mnode->settings = json_stringify(jsettings, NULL);
-						json_delete(jsettings);
-
-						if(uuid != NULL) {
-							strcpy(mnode->uuid, uuid);
-						} else {
-							memset(mnode->uuid, '\0', UUID_LENGTH);
-						}
-						if(sendqueue_number == 0) {
-							sendqueue = mnode;
-							sendqueue_tail = mnode;
-						} else {
-							sendqueue_tail->next = mnode;
-							sendqueue_tail = mnode;
-						}
-						sendqueue_number++;
-					} else {
-						logprintf(LOG_ERR, "send queue full");
-						pthread_mutex_unlock(&sendqueue_lock);
-						return -1;
-					}
-					pthread_mutex_unlock(&sendqueue_lock);
-					pthread_cond_signal(&sendqueue_signal);
-					return 0;
-				} else {
-					pthread_mutex_unlock(&sendqueue_lock);
-					return -1;
-				}
+			if(pnode != NULL) {
+				break;
 			}
-		} else {
-			pthread_mutex_unlock(&sendqueue_lock);
-			return 0;
 		}
 	}
-	pthread_mutex_unlock(&sendqueue_lock);
-	return -1;
+	if(protocol == NULL || protocol->createCode == NULL || main_loop == 0) {
+		return -1;	// no protocol or can't send.
+	}
+
+	memset(raw, 0, sizeof(raw));
+	protocol->raw = raw;
+
+	/* Let the protocol create his code */
+	if(protocol->createCode(jcode) != 0) {
+		return -1;
+	}
+
+	struct sendqueue_t *mnode = NULL;
+	CONFIG_ALLOC_UNNAMED_NODE(mnode);
+
+	gettimeofday(&tcurrent, NULL);
+	mnode->origin = origin;
+	mnode->id = 1000000 * (unsigned int)tcurrent.tv_sec + (unsigned int)tcurrent.tv_usec;
+	mnode->message = NULL;
+	if(protocol->message != NULL) {
+		char *jsonstr = json_stringify(protocol->message, NULL);
+		if(json_validate(jsonstr, NULL) == true) {
+			mnode->message = jsonstr;
+			jsonstr = NULL;
+		} else {
+			logprintf(LOG_ERR, "failed to generate json code for protocol %s command", protocol->id);
+			json_free(jsonstr);
+		}
+		json_delete(protocol->message);
+		protocol->message = NULL;
+	}
+
+	mnode->length = protocol->rawlen;
+	memcpy(mnode->code, protocol->raw, sizeof(int)*protocol->rawlen);
+
+	mnode->protoname = STRDUP_OR_EXIT(protocol->id);
+	mnode->protopt = protocol;
+
+	struct options_t *tmp_options = protocol->options;
+	const char *stmp = NULL;
+	struct JsonNode *jsettings = json_mkobject();
+	const struct JsonNode *jtmp = NULL;
+	while(tmp_options) {
+		if(tmp_options->conftype == DEVICES_SETTING) {
+			if(tmp_options->vartype == JSON_NUMBER &&
+			  (jtmp = json_find_member(jcode, tmp_options->name)) != NULL &&
+			   jtmp->tag == JSON_NUMBER) {
+				json_append_member(jsettings, tmp_options->name, json_mknumber(jtmp->number_, jtmp->decimals_));
+			} else if(tmp_options->vartype == JSON_STRING && json_find_string(jcode, tmp_options->name, &stmp) == 0) {
+				json_append_member(jsettings, tmp_options->name, json_mkstring(stmp));
+			}
+		}
+		tmp_options = tmp_options->next;
+	}
+	mnode->settings = json_stringify(jsettings, NULL);
+	json_delete(jsettings);
+	jsettings = NULL;
+
+	if(uuid != NULL) {
+		strcpy(mnode->uuid, uuid);
+	} else {
+		memset(mnode->uuid, '\0', UUID_LENGTH);
+	}
+
+	CONFIG_APPEND_NODE_TO_TAIL(mnode, sendqueue_head, sendqueue_tail);
+	sendqueue_number++;
+
+	return 0;
 }
 
 #ifdef WEBSERVER
@@ -1019,66 +1060,55 @@ static int control_device(struct devices_t *dev, const char *state, const struct
 	struct JsonNode *jprotocols = json_mkarray();
 
 	/* Check all protocol options */
-	tmp_protocols = dev->protocols;
-	while(tmp_protocols) {
+	for (tmp_protocols = dev->protocols; tmp_protocols; tmp_protocols = tmp_protocols->next) {
 		json_append_element(jprotocols, json_mkstring(tmp_protocols->name));
-		if((opt = tmp_protocols->listener->options)) {
-			while(opt) {
-				sett = dev->settings;
-				while(sett) {
-					/* Retrieve the device id's */
-					if(strcmp(sett->name, "id") == 0) {
-						val = sett->values;
-						while(val) {
-							if((opt->conftype == DEVICES_ID)
-							   && strcmp(val->name, opt->name) == 0
-							   && json_find_member(code, opt->name) == NULL) {
-								if(val->type == JSON_STRING) {
-									json_append_member(code, val->name, json_mkstring(val->string_));
-								} else if(val->type == JSON_NUMBER) {
-									json_append_member(code, val->name, json_mknumber(val->number_, val->decimals));
-								}
-							}
-							val = val->next;
-						}
-					}
-					if(strcmp(sett->name, opt->name) == 0
-					   && opt->conftype == DEVICES_SETTING) {
-						val = sett->values;
-						if(json_find_member(code, opt->name) == NULL) {
+		for(opt = tmp_protocols->listener->options; opt; opt = opt->next) {
+			for (sett = dev->settings; sett; sett = sett->next) {
+				/* Retrieve the device id's */
+				if(strcmp(sett->name, "id") == 0) {
+					for (val = sett->values; val; val = val->next) {
+						if((opt->conftype == DEVICES_ID)
+						   && strcmp(val->name, opt->name) == 0
+						   && json_find_member(code, opt->name) == NULL) {
 							if(val->type == JSON_STRING) {
-								json_append_member(code, opt->name, json_mkstring(val->string_));
+								json_append_member(code, val->name, json_mkstring(val->string_));
 							} else if(val->type == JSON_NUMBER) {
-								json_append_member(code, opt->name, json_mknumber(val->number_, val->decimals));
+								json_append_member(code, val->name, json_mknumber(val->number_, val->decimals));
 							}
 						}
 					}
-					sett = sett->next;
 				}
-				opt = opt->next;
-			}
-			while(values) {
-				opt = tmp_protocols->listener->options;
-				while(opt) {
-					if((opt->conftype == DEVICES_VALUE || opt->conftype == DEVICES_OPTIONAL)
-					   && strcmp(values->key, opt->name) == 0
-					   && json_find_member(code, opt->name) == NULL) {
-						if(values->tag == JSON_STRING) {
-							json_append_member(code, values->key, json_mkstring(values->string_));
-						} else if(values->tag == JSON_NUMBER) {
-							json_append_member(code, values->key, json_mknumber(values->number_, values->decimals_));
+				if(strcmp(sett->name, opt->name) == 0 && opt->conftype == DEVICES_SETTING) {
+					val = sett->values;
+					if(json_find_member(code, opt->name) == NULL) {
+						if(val->type == JSON_STRING) {
+							json_append_member(code, opt->name, json_mkstring(val->string_));
+						} else if(val->type == JSON_NUMBER) {
+							json_append_member(code, opt->name, json_mknumber(val->number_, val->decimals));
 						}
 					}
-					opt = opt->next;
 				}
-				values = values->next;
+			}
+		}
+		for (; values; values = values->next) {
+			for (opt = tmp_protocols->listener->options; opt; opt = opt->next) {
+				if((opt->conftype == DEVICES_VALUE || opt->conftype == DEVICES_OPTIONAL)
+				   && strcmp(values->key, opt->name) == 0
+				   && json_find_member(code, opt->name) == NULL) {
+					if(values->tag == JSON_STRING) {
+						json_append_member(code, values->key, json_mkstring(values->string_));
+					} else if(values->tag == JSON_NUMBER) {
+						json_append_member(code, values->key, json_mknumber(values->number_, values->decimals_));
+					}
+				}
 			}
 		}
 		/* Send the new device state */
-		if((opt = tmp_protocols->listener->options) && state != NULL) {
-			while(opt) {
+		if(state != NULL) {
+			for (opt = tmp_protocols->listener->options; opt; opt = opt->next) {
 				if(json_find_member(code, opt->name) == NULL) {
-					if(opt->conftype == DEVICES_STATE && opt->argtype == OPTION_NO_VALUE && strcmp(opt->name, state) == 0) {
+					if(opt->conftype == DEVICES_STATE && opt->argtype == OPTION_NO_VALUE
+					   && strcmp(opt->name, state) == 0) {
 						json_append_member(code, opt->name, json_mknumber(1, 0));
 						break;
 					} else if(opt->conftype == DEVICES_STATE && opt->argtype == OPTION_HAS_VALUE) {
@@ -1086,10 +1116,8 @@ static int control_device(struct devices_t *dev, const char *state, const struct
 						break;
 					}
 				}
-				opt = opt->next;
 			}
 		}
-		tmp_protocols = tmp_protocols->next;
 	}
 
 	/* Construct the right json object */
@@ -1454,34 +1482,36 @@ void *receivePulseTrain(void *param) {
 #else
 	/* Make sure the pilight receiving gets
 	   the highest priority available */
-	struct sched_param sched;
-	memset(&sched, 0, sizeof(sched));
+	struct sched_param sched = { 0 };
 	sched.sched_priority = 70;
 	pthread_setschedparam(pthread_self(), SCHED_FIFO, &sched);
 #endif
 
 	struct hardware_t *hw = (hardware_t *)param;
-	pthread_mutex_lock(&hw->lock);
 	hw->running = 1;
 
-	while(main_loop == 1 && hw->receivePulseTrain != NULL && hw->stop == 0) {
-		if(hw->wait == 0) {
-			pthread_mutex_lock(&hw->lock);
-			logprintf(LOG_STACK, "%s::unlocked", __FUNCTION__);
-
-			hw->receivePulseTrain(&r);
-			plslen = r.pulses[r.length-1]/PULSE_DIV;
-			if(r.length > 0) {
-				receive_queue(r.pulses, r.length, plslen, hw->hwtype);
-			} else if(r.length == -1) {
-				hw->init();
-				sleep(1);
-			}
-
-			pthread_mutex_unlock(&hw->lock);
-		} else {
+	while(main_loop != 0 && hw->receivePulseTrain != NULL && hw->stop == 0) {
+		pthread_mutex_lock(&hw->lock);
+		while(main_loop != 0 && hw->wait != 0) {
+			logprintf(LOG_DEBUG, "%s::waiting", __FUNCTION__);
 			pthread_cond_wait(&hw->signal, &hw->lock);
+			logprintf(LOG_DEBUG, "%s::working", __FUNCTION__);
 		}
+		if(main_loop == 0 || hw->wait != 0) {
+			pthread_mutex_unlock(&hw->lock);
+			continue;
+		}
+
+		r.length = 0;
+		hw->receivePulseTrain(&r);
+		if(r.length > 0) {
+			plslen = r.pulses[r.length-1]/PULSE_DIV;
+			receive_queue(r.pulses, r.length, plslen, hw->hwtype);
+		} else if(r.length == -1) {
+			hw->init();
+			sleep(1);
+		}
+		pthread_mutex_unlock(&hw->lock);
 	}
 	hw->running = 0;
 	return (void *)NULL;
@@ -1494,57 +1524,67 @@ void *receiveOOK(void *param) {
 	r.length = 0;
 	int plslen = 0, duration = 0;
 	struct timeval tp;
-	struct timespec ts;
 
 #ifdef _WIN32
 	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 #else
 	/* Make sure the pilight receiving gets
 	   the highest priority available */
-	struct sched_param sched;
-	memset(&sched, 0, sizeof(sched));
+	struct sched_param sched = { 0 };
 	sched.sched_priority = 70;
 	pthread_setschedparam(pthread_self(), SCHED_FIFO, &sched);
 #endif
 
 	struct hardware_t *hw = (hardware_t *)param;
-	pthread_mutex_lock(&hw->lock);
 	hw->running = 1;
 
-	while(main_loop == 1 && hw->receiveOOK != NULL && hw->stop == 0) {
-		if(hw->wait == 0) {
-			pthread_mutex_lock(&hw->lock);
-			logprintf(LOG_STACK, "%s::unlocked", __FUNCTION__);
-			duration = hw->receiveOOK();
-			if(duration > 0) {
-				r.pulses[r.length++] = duration;
-				if(r.length > MAXPULSESTREAMLENGTH-1) {
-					r.length = 0;
-				}
-				if(duration > hw->mingaplen) {
-					if(duration < hw->maxgaplen) {
-						plslen = duration/PULSE_DIV;
-					}
-					/* Let's do a little filtering here as well */
-					if(r.length >= hw->minrawlen && r.length <= hw->maxrawlen) {
-						receive_queue(r.pulses, r.length, plslen, hw->hwtype);
-					}
-					r.length = 0;
-				}
-			/* Hardware failure */
-			} else if(duration == -1) {
-				pthread_mutex_unlock(&hw->lock);
-				gettimeofday(&tp, NULL);
-				ts.tv_sec = tp.tv_sec;
-				ts.tv_nsec = tp.tv_usec * 1000;
-				ts.tv_sec += 1;
-				pthread_mutex_lock(&hw->lock);
-				pthread_cond_timedwait(&hw->signal, &hw->lock, &ts);
-			}
-			pthread_mutex_unlock(&hw->lock);
-		} else {
+	while(main_loop != 0 && hw->receiveOOK != NULL && hw->stop == 0) {
+		pthread_mutex_lock(&hw->lock);
+
+		while(main_loop != 0 && hw->wait != 0) {
+			logprintf(LOG_DEBUG, "%s::waiting", __FUNCTION__);
 			pthread_cond_wait(&hw->signal, &hw->lock);
+			logprintf(LOG_DEBUG, "%s::working", __FUNCTION__);
 		}
+		if(main_loop == 0 || hw->wait != 0) {
+			pthread_mutex_unlock(&hw->lock);
+			continue;
+		}
+
+		while((duration = hw->receiveOOK()) > 0) {
+			if(r.length >= countof(r.pulses)) {
+				r.length = 0;
+				plslen = 0;
+				break;
+			}
+			r.pulses[r.length++] = duration;
+			if(duration > hw->mingaplen) {
+				if(duration < hw->maxgaplen) {
+					plslen = duration/PULSE_DIV;
+				}
+				/* Let's do a little filtering here as well */
+				if(r.length >= hw->minrawlen && r.length <= hw->maxrawlen) {
+					if(plslen == 0)
+						plslen = duration/PULSE_DIV;
+					receive_queue(r.pulses, r.length, plslen, hw->hwtype);
+					r.length = 0;
+					plslen = 0;
+					break;
+				}
+			}
+		}
+		if(duration == -1) {
+			/* Hardware failure */
+			struct timespec ts = { 0 };
+			gettimeofday(&tp, NULL);
+			ts.tv_sec = tp.tv_sec;
+			ts.tv_nsec = tp.tv_usec * 1000;
+			ts.tv_sec += 1;
+			pthread_cond_timedwait(&hw->signal, &hw->lock, &ts);
+			r.length = 0;
+			plslen = 0;
+		}
+		pthread_mutex_unlock(&hw->lock);
 	}
 	hw->running = 0;
 	return (void *)NULL;
@@ -1558,7 +1598,7 @@ void *clientize(void *param) {
 	struct JsonNode *joptions = NULL;
 	const struct JsonNode *jchilds = NULL;
 	struct JsonNode *tmp = NULL;
-  char *recvBuff = NULL, *output = NULL;
+	char *recvBuff = NULL, *output = NULL;
 	const char *message = NULL, *action = NULL;
 	const char *origin = NULL, *protocol = NULL;
 	int client_loop = 0, config_synced = 0;
@@ -1715,17 +1755,16 @@ static void save_pid(pid_t npid) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	int f = 0;
-	char buffer[BUFFER_SIZE];
-	memset(buffer, '\0', BUFFER_SIZE);
 	if((f = open(pid_file, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) != -1) {
 		lseek(f, 0, SEEK_SET);
+		char buffer[BUFFER_SIZE];
 		sprintf(buffer, "%d", npid);
-		ssize_t i = write(f, buffer, strlen(buffer));
-		if(i != strlen(buffer)) {
-			logprintf(LOG_WARNING, "could not store pid in %s", pid_file);
+		int i = strlen(buffer);
+		if(write(f, buffer, i) != i) {
+			logprintf(LOG_WARNING, "could not store pid in '%s' (%s)", pid_file, strerror(errno));
 		}
+		close(f);
 	}
-	close(f);
 }
 
 static void daemonize(void) {
@@ -1803,22 +1842,20 @@ int main_gc(void) {
 		clients = clients->next;
 		FREE(tmp_clients);
 	}
-	if(clients != NULL) {
-		FREE(clients);
-	}
 
 #ifndef _WIN32
 	if(running == 0) {
 		/* Remove the stale pid file */
 		if(access(pid_file, F_OK) != -1) {
 			if(remove(pid_file) != -1) {
-				logprintf(LOG_INFO, "removed stale pid_file %s", pid_file);
+				logprintf(LOG_INFO, "removed stale pid_file '%s'", pid_file);
 			} else {
-				logprintf(LOG_ERR, "could not remove stale pid file %s", pid_file);
+				logprintf(LOG_ERR, "could not remove stale pid file '%s' (%s)", pid_file, strerror(errno));
 			}
 		}
 	}
 
+	FREE(pid_file);
 	pid_file = NULL;
 #endif
 #ifdef WEBSERVER
@@ -1828,9 +1865,7 @@ int main_gc(void) {
 	webserver_root = NULL;
 #endif
 
-	if(master_server != NULL) {
-		FREE(master_server);
-	}
+	FREE(master_server);
 
 	datetime_gc();
 	ssdp_gc();
@@ -1847,9 +1882,7 @@ int main_gc(void) {
 #endif
 	dso_gc();
 	log_gc();
-	if(configtmp != NULL) {
-		FREE(configtmp);
-	}
+	FREE(configtmp);
 
 	gc_clear();
 	FREE(progname);
@@ -2030,7 +2063,7 @@ void *pilight_stats(void *param) {
 						}
 						tmp_clients = tmp_clients->next;
 					}
-					add_timestamp(procProtocol->message, "measured-timestamp", &cpu_ram_time);
+					add_timestamp(procProtocol->message, "timestamp", &cpu_ram_time);
 					pilight.broadcast(procProtocol->id, procProtocol->message, STATS);
 					json_delete(procProtocol->message);
 					procProtocol->message = NULL;
@@ -2050,7 +2083,7 @@ int start_pilight(int argc, char **argv) {
 	struct options_t *options = NULL;
 	struct ssdp_list_t *ssdp_list = NULL;
 
-	char buffer[BUFFER_SIZE];
+	pid_t other_pid_running = 0;
 	int itmp = 0, show_default = 0, show_version = 0, show_help = 0;
 #ifndef _WIN32
 	int f = 0;
@@ -2232,8 +2265,6 @@ int start_pilight(int argc, char **argv) {
 	log_file_enable();
 	log_shell_disable();
 
-	memset(buffer, '\0', BUFFER_SIZE);
-
 	if(nodaemon == 1) {
 		log_level_set(verbosity);
 		log_shell_enable();
@@ -2281,8 +2312,8 @@ int start_pilight(int argc, char **argv) {
 	int pem_free = 0;
 	if(settings_find_string("pem-file", &pemfile) != 0) {
 		pemfile = PEM_FILE;
-	}	
-	
+	}
+
 	char *content = NULL;
 	unsigned char md5sum[17];
 	char md5conv[33];
@@ -2318,21 +2349,28 @@ int start_pilight(int argc, char **argv) {
 	settings_find_number("receive-while-sending", &receive_while_sending);
 
 #ifndef _WIN32
+	FREE(pid_file);
+	pid_file = NULL;
 	if(settings_find_string("pid-file", &pid_file) != 0) {
 		pid_file = PID_FILE;
 	}
+	pid_file = STRDUP_OR_EXIT(pid_file);
 
 	if((f = open(pid_file, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR)) != -1) {
-		if(read(f, buffer, BUFFER_SIZE) != -1) {
+		char buffer[BUFFER_SIZE] = { 0 };
+		if(read(f, buffer, BUFFER_SIZE) == -1) {
+			logprintf(LOG_WARNING, "could not read pid_file '%s' (%s)", pid_file, strerror(errno));
+		} else {
 			//If the file is empty, create a new process
-			strcat(buffer, "\0");
-			if(!atoi(buffer)) {
+			other_pid_running = atoi(buffer);
+			if(!other_pid_running) {
 				running = 0;
 			} else {
 				//Check if the process is running
-				kill(atoi(buffer), 0);
+				kill(other_pid_running, 0);
 				//If not, create a new process
 				if(errno == ESRCH) {
+					other_pid_running = 0;
 					running = 0;
 				}
 			}
@@ -2374,7 +2412,7 @@ int start_pilight(int argc, char **argv) {
 #ifndef _WIN32
 	if(running == 1) {
 		nodaemon = 1;
-		logprintf(LOG_NOTICE, "already active (pid %d)", atoi(buffer));
+		logprintf(LOG_NOTICE, "already active (pid %d)", other_pid_running);
 		log_level_set(LOG_NOTICE);
 		log_shell_disable();
 		goto clear;

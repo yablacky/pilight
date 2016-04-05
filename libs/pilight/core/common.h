@@ -108,5 +108,6 @@ int json_find_string(const JsonNode *object_or_array, const char *name, const ch
 	( (newerT).tv_sec  - (olderT).tv_sec) * 1000000UL	  \
 	+ (newerT).tv_usec - (olderT).tv_usec			)
 
+int check_email_addr(const char *addr, int allow_lists, int check_domain_can_mail);
 
 #endif

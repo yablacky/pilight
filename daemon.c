@@ -103,7 +103,7 @@ typedef struct clients_t {
 	struct clients_t *next;
 } clients_t;
 
-static struct clients_t *clients = NULL;
+static struct clients_t *clients_head = NULL;
 
 typedef struct sendqueue_t {
 	unsigned int id;
@@ -215,20 +215,13 @@ static const char *webserver_root = NULL;
 static void client_remove(int id) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	struct clients_t *currP, *prevP;
+	struct clients_t *curr, **prev_next = &clients_head;
 
-	prevP = NULL;
+	for(curr = clients_head; curr != NULL; curr = *(prev_next = &curr->next)) {
 
-	for(currP = clients; currP != NULL; prevP = currP, currP = currP->next) {
-
-		if(currP->id == id) {
-			if(prevP == NULL) {
-				clients = currP->next;
-			} else {
-				prevP->next = currP->next;
-			}
-
-			FREE(currP);
+		if(curr->id == id) {
+			*prev_next = curr->next;
+			FREE(curr);
 			break;
 		}
 	}
@@ -298,7 +291,7 @@ static void *broadcast(void *param) {
 				double tmp = 0;
 				json_find_number(bcqueue->jmessage, "type", &tmp);
 				char *conf = json_stringify(bcqueue->jmessage, NULL);
-				struct clients_t *tmp_clients = clients;
+				struct clients_t *tmp_clients = clients_head;
 				while(tmp_clients) {
 					if(((int)tmp < 0 && tmp_clients->core == 1) ||
 					   ((int)tmp >= 0 && tmp_clients->config == 1) ||
@@ -326,7 +319,7 @@ static void *broadcast(void *param) {
 				if(devices_update(bcqueue->protoname, bcqueue->jmessage, bcqueue->origin, &jret) == 0) {
 					char *tmp = json_stringify(jret, NULL);
 					unsigned short match1 = 0, match2 = 0;
-					struct clients_t *tmp_clients = clients;
+					struct clients_t *tmp_clients = clients_head;
 
 					for(;tmp_clients; tmp_clients = tmp_clients->next) {
 						if(tmp_clients->config != 1) {
@@ -424,7 +417,7 @@ static void *broadcast(void *param) {
 				}
 
 				/* Write the message to all receivers */
-				struct clients_t *tmp_clients = clients;
+				struct clients_t *tmp_clients = clients_head;
 				while(tmp_clients) {
 					if(tmp_clients->receiver == 1 && tmp_clients->forward == 0) {
 							if(strcmp(out, "{}") != 0 && nrchilds > 1) {
@@ -849,7 +842,7 @@ static int send_queue_nolock(struct JsonNode *json, enum origin_t origin) {
 		return -1;
 	}
 
-	tmp_clients = clients;
+	tmp_clients = clients_head;
 	while(tmp_clients) {
 		if(tmp_clients->forward == 1) {
 			socket_write(tmp_clients->id, buffer);
@@ -1170,7 +1163,7 @@ static void socket_parse_data(int i, char *buffer) {
 #endif
 			json = json_decode(buffer);
 			if((json_find_string(json, "action", &action)) == 0) {
-				tmp_clients = clients;
+				tmp_clients = clients_head;
 				while(tmp_clients) {
 					if(tmp_clients->id == sd) {
 						exists = 1;
@@ -1255,16 +1248,7 @@ static void socket_parse_data(int i, char *buffer) {
 						if(error == 1) {
 							FREE(client);
 						} else {
-							tmp_clients = clients;
-							if(tmp_clients) {
-								while(tmp_clients->next != NULL) {
-									tmp_clients = tmp_clients->next;
-								}
-								tmp_clients->next = client;
-							} else {
-								client->next = clients;
-								clients = client;
-							}
+							CONFIG_APPEND_NODE_TO_LIST(client, clients_head);
 						}
 					}
 					socket_write(sd, "{\"status\":\"success\"}");
@@ -1411,7 +1395,7 @@ static void socket_parse_data(int i, char *buffer) {
 					const char *pname = NULL;
 					if((jvalues = json_find_member(json, "values")) != NULL) {
 						exists = 0;
-						tmp_clients = clients;
+						tmp_clients = clients_head;
 						while(tmp_clients) {
 							if(tmp_clients->id == sd) {
 								exists = 1;
@@ -1432,7 +1416,7 @@ static void socket_parse_data(int i, char *buffer) {
 					error = 1;
 				}
 			} else if((json_find_string(json, "status", &status)) == 0) {
-				tmp_clients = clients;
+				tmp_clients = clients_head;
 				while(tmp_clients) {
 					if(tmp_clients->id == sd) {
 						exists = 1;
@@ -1830,9 +1814,9 @@ static int main_gc(void) {
 	}
 
 	struct clients_t *tmp_clients;
-	while(clients) {
-		tmp_clients = clients;
-		clients = clients->next;
+	while(clients_head) {
+		tmp_clients = clients_head;
+		clients_head = clients_head->next;
 		FREE(tmp_clients);
 	}
 
@@ -2048,7 +2032,7 @@ static void *pilight_stats(void *param) {
 					json_append_member(procProtocol->message, "values", code);
 					json_append_member(procProtocol->message, "origin", json_mkstring("core"));
 					json_append_member(procProtocol->message, "type", json_mknumber(PROCESS, 0));
-					struct clients_t *tmp_clients = clients;
+					struct clients_t *tmp_clients = clients_head;
 					while(tmp_clients) {
 						if(tmp_clients->cpu > 0 && tmp_clients->ram > 0) {
 							logprintf(LOG_DEBUG, "- client: %s cpu: %f%%, ram: %f%%",

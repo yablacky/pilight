@@ -159,56 +159,48 @@ static unsigned short bcqueue_init = 0;
 
 static struct protocol_t *procProtocol;
 
-/* By default the reveiver is turned to wait-mode while
-	sending to prevent receivin the sent data.
-	For debug reasons this might be helpful.  */
-static int receive_while_sending = 0;
+static char *configtmp = NULL;		/* Name of the config file being used */
 
-/* The pid_file and pid of this daemon */
+static pid_t pid;			/* The pid_file and pid of this daemon */
 #ifndef _WIN32
 static const char *pid_file;
 #endif
-static pid_t pid;
-/* Daemonize or not */
-static int nodaemon = 0;
 
-/* Run tracktracer */
-static int stacktracer = 0;
+static int standalone = 0;		/* Are we running standalone */
 
-/* Run thread profiler */
-static int threadprofiler = 0;
+static int nodaemon = 0;		/* Daemonize or not */
 
-/* Are we already running */
-static int volatile running = 1;
+static int stacktracer = 0;		/* Run tracktracer */
 
-/* Are we currently sending code */
-static int volatile sending = 0;
+static int threadprofiler = 0;		/* Run thread profiler */
 
-/* Socket identifier to the server if we are running as client */
-static int sockfd = 0;
+static int volatile running = 1;	/* Are we already running */
 
-/* Thread pointers */
-static pthread_t logpth;
+static int volatile sending = 0;	/* Are we currently sending code */
 
-/* While loop conditions */
-static unsigned short main_loop = 1;
+static int sockfd = 0;			/* Socket identifier to the server if we are running as client */
 
-/* Are we running standalone */
-static int standalone = 0;
-
-/* Do we need to connect to a master server:port? */
-static char *master_server = NULL;
-static unsigned short master_port = 0;
-
-static char *configtmp = NULL;
+static pthread_t logpth;		/* Log thread pointer */
 static int verbosity = LOG_DEBUG;
-struct socket_callback_t socket_callback;
 
 #ifdef _WIN32
 	static int console = 0;
 	static int oldverbosity = LOG_NOTICE;
 #endif
 
+/* By default the reveiver is turned to wait-mode while
+	sending to prevent receivin the sent data.
+	For debug reasons it might be helpful to
+	receive self-sent-messages:  */
+static int receive_while_sending = 0;
+
+/* While loop conditions */
+static unsigned short main_loop = 1;
+
+/* Do we need to connect to a master server:port? */
+static char *master_server = NULL;
+static unsigned short master_port = 0;
+struct socket_callback_t socket_callback;
 
 #ifdef WEBSERVER
 /* Do we enable the webserver */
@@ -248,7 +240,7 @@ static void broadcast_queue(const char *protoname, const struct JsonNode *json, 
 	if(main_loop == 1) {
 		pthread_mutex_lock(&bcqueue_lock);
 		if(bcqueue_number > 1024) {
-			logprintf(LOG_ERR, "broadcast queue full");
+			logprintf(LOG_ERR, "broadcast queue full (1024 entries)");
 		} else {
 			struct bcqueue_t *bnode = NULL;
 			CONFIG_ALLOC_UNNAMED_NODE(bnode);
@@ -272,7 +264,7 @@ static void broadcast_queue(const char *protoname, const struct JsonNode *json, 
 	}
 }
 
-void *broadcast(void *param) {
+static void *broadcast(void *param) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	int broadcasted = 0;
@@ -480,7 +472,7 @@ static void receive_queue(int *raw, int rawlen, int plslen, int hwtype) {
 		}
 		pthread_mutex_lock(&recvqueue_lock);
 		if(recvqueue_number > 1024) {
-			logprintf(LOG_ERR, "receiver queue full");
+			logprintf(LOG_ERR, "receiver queue full (1024 entries)");
 		} else {
 			struct recvqueue_t *rnode = NULL;
 			CONFIG_ALLOC_UNNAMED_NODE(rnode);
@@ -557,8 +549,9 @@ static void receiver_create_message(protocol_t *protocol, const char *msg_name, 
 			}
 
 			add_timestamp(jmessage, "received-timestamp", NULL);
-			static size_t total_message_count = 0;	// no thread-safe increment yet:
-			json_append_member(jmessage, "received-total", json_mknumber(++total_message_count, 0));
+			static size_t total_message_count = 0;
+			json_append_member(jmessage, "received-total",
+				json_mknumber(__sync_add_and_fetch(&total_message_count, 1), 0));
 
 			char *output = json_stringify(jmessage, NULL);
 			struct JsonNode *json = json_decode(output);
@@ -591,7 +584,7 @@ static void receive_parse_api(struct JsonNode *code, int hwtype) {
 	}
 }
 
-void *receive_parse_code(void *param) {
+static void *receive_parse_code(void *param) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	while(main_loop != 0) {
@@ -661,7 +654,7 @@ void *receive_parse_code(void *param) {
 	return (void *)NULL;
 }
 
-void *send_code(void *param) {
+static void *send_code(void *param) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	int i = 0;
@@ -811,7 +804,7 @@ static int send_queue(struct JsonNode *json, enum origin_t origin) {
 
 	int ret = -1, need_signal = 1;
 	if(sendqueue_number > 1024) {
-		logprintf(LOG_ERR, "send queue full");
+		logprintf(LOG_ERR, "send queue full (1024 entries)");
 	} else {
 		int need_signal = sendqueue_number;
 		ret = send_queue_nolock(json, origin);
@@ -1471,7 +1464,7 @@ static void socket_client_disconnected(int i) {
 	client_remove(socket_get_clients(i));
 }
 
-void *receivePulseTrain(void *param) {
+static void *receivePulseTrain(void *param) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	struct rawcode_t r;
@@ -1517,7 +1510,7 @@ void *receivePulseTrain(void *param) {
 	return (void *)NULL;
 }
 
-void *receiveOOK(void *param) {
+static void *receiveOOK(void *param) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	struct rawcode_t r;
@@ -1590,7 +1583,7 @@ void *receiveOOK(void *param) {
 	return (void *)NULL;
 }
 
-void *clientize(void *param) {
+static void *clientize(void *param) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	struct ssdp_list_t *ssdp_list = NULL;
@@ -1792,7 +1785,7 @@ static void daemonize(void) {
 #endif
 
 /* Garbage collector of main program */
-int main_gc(void) {
+static int main_gc(void) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	running = 0;
@@ -1928,19 +1921,19 @@ void registerVersion(void) {
 #endif
 
 #ifdef _WIN32
-void closeconsole(void) {
+static void closeconsole(void) {
 	log_shell_disable();
 	verbosity = oldverbosity;
 	FreeConsole();
 	console = 0;
 }
 
-BOOL CtrlHandler(DWORD fdwCtrlType) {
+static BOOL CtrlHandler(DWORD fdwCtrlType) {
 	closeconsole();
 	return TRUE;
 }
 
-void openconsole(void) {
+static void openconsole(void) {
 	DWORD lpMode;
 	AllocConsole();
 	freopen("CONOUT$", "w", stdout);
@@ -1966,7 +1959,7 @@ void openconsole(void) {
 }
 #endif
 
-void *pilight_stats(void *param) {
+static void *pilight_stats(void *param) {
 	int checkram = 0, checkcpu = 0, i = -1, x = 0, watchdog = 1, stats = 1;
 	settings_find_number("watchdog-enable", &watchdog);
 	settings_find_number("stats-enable", &stats);
@@ -2079,7 +2072,7 @@ void *pilight_stats(void *param) {
 	return (void *)NULL;
 }
 
-int start_pilight(int argc, char **argv) {
+static int start_pilight(int argc, char **argv) {
 	struct options_t *options = NULL;
 	struct ssdp_list_t *ssdp_list = NULL;
 

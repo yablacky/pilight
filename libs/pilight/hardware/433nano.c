@@ -372,27 +372,21 @@ static int nano433Receive(struct rawcode_t *r) {
 							     mingaplen == atoi(array[2]) && maxgaplen == atoi(array[3]))) {
 								logprintf(LOG_WARNING, "could not sync FW values");
 							}
-							firmware.version = atof(array[4]);
-							firmware.lpf = atof(array[5]);
-							firmware.hpf = atof(array[6]);
+							firmware_t fw;
+							firmware_from_hw(&fw,
+								atof(array[4]),		// version
+								atof(array[5]),		// lpf
+								atof(array[6]));	// hpf
 
 							if(firmware.version > 0 && firmware.lpf > 0 && firmware.hpf > 0) {
-								registry_set_number("pilight.firmware.version", firmware.version, 0);
-								registry_set_number("pilight.firmware.lpf", firmware.lpf, 0);
-								registry_set_number("pilight.firmware.hpf", firmware.hpf, 0);
+								firmware_to_registry(&fw);
 
 								struct JsonNode *jmessage = json_mkobject();
-								struct JsonNode *jcode = json_mkobject();
-								json_append_member(jcode, "version", json_mknumber(firmware.version, 0));
-								json_append_member(jcode, "lpf", json_mknumber(firmware.lpf, 0));
-								json_append_member(jcode, "hpf", json_mknumber(firmware.hpf, 0));
-								json_append_member(jmessage, "values", jcode);
+								json_append_member(jmessage, "values", firmware_to_json(&fw, json_mkobject()));
 								json_append_member(jmessage, "origin", json_mkstring("core"));
 								json_append_member(jmessage, "type", json_mknumber(FIRMWARE, 0));
-								char pname[17];
-								strcpy(pname, "pilight-firmware");
 								if(pilight.broadcast != NULL) {
-									pilight.broadcast(pname, jmessage, FW);
+									pilight.broadcast("pilight-firmware", jmessage, FW);
 								}
 								json_delete(jmessage);
 								jmessage = NULL;

@@ -22,6 +22,7 @@
 
 #include "../../core/pilight.h"
 #include "../../core/common.h"
+#include "../../core/firmware.h"
 #include "../../core/dso.h"
 #include "../../core/log.h"
 #include "../protocol.h"
@@ -49,9 +50,10 @@ static int validate(void) {
 
 static void createMessage(int version, int high, int low) {
 	pilight_firmware_v3->message = json_mkobject();
-	json_append_member(pilight_firmware_v3->message, "version", json_mknumber(version, 2));
-	json_append_member(pilight_firmware_v3->message, "lpf", json_mknumber(low*10, 0));
-	json_append_member(pilight_firmware_v3->message, "hpf", json_mknumber(high*10, 0));
+
+	firmware_t fw;
+	firmware_from_hw(&fw, version, low*10, high*10);
+	firmware_to_json(&fw, pilight_firmware_v3->message);
 }
 
 static void parseCode(void) {
@@ -69,8 +71,8 @@ static void parseCode(void) {
 	}
 
 	int version = binToDec(binary, 0, 15);
-	int high = binToDec(binary, 16, 31);
-	int low = binToDec(binary, 32, 47);
+	int low = binToDec(binary, 16, 31);
+	int high = binToDec(binary, 32, 47);
 	int chk = binToDec(binary, 48, 51);
 	int lpf = low;
 	int hpf = high;
@@ -109,6 +111,8 @@ void pilightFirmwareV3Init(void) {
   options_add(&pilight_firmware_v3->options, 'v', "version", OPTION_HAS_VALUE, DEVICES_ID, JSON_NUMBER, NULL, "^[0-9]+$");
   options_add(&pilight_firmware_v3->options, 'l', "lpf", OPTION_HAS_VALUE, DEVICES_ID, JSON_NUMBER, NULL, "^[0-9]+$");
   options_add(&pilight_firmware_v3->options, 'h', "hpf", OPTION_HAS_VALUE, DEVICES_ID, JSON_NUMBER, NULL, "^[0-9]+$");
+  options_add(&pilight_firmware_v3->options, 'm', "method", OPTION_HAS_VALUE, DEVICES_ID, JSON_STRING, NULL, "^.+$");
+  options_add(&pilight_firmware_v3->options, 'V', "raw-version", OPTION_HAS_VALUE, DEVICES_ID, JSON_NUMBER, NULL, "^[0-9]+$");
 
   pilight_firmware_v3->parseCode=&parseCode;
   pilight_firmware_v3->validate=&validate;

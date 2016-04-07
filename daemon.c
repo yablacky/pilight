@@ -212,6 +212,8 @@ static int webserver_http_port = WEBSERVER_HTTP_PORT;
 static const char *webserver_root = NULL;
 #endif
 
+#define protocol_can_hwtype(p, t) ((p) != NULL && ((p)->hwtype == (t) || (p)->hwtype == HWINTERNAL || (t) == HWINTERNAL))
+
 static void client_remove(int id) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
@@ -271,8 +273,8 @@ static void *broadcast(void *param) {
 			logprintf(LOG_DEBUG, "%s::waiting", __FUNCTION__);
 			pthread_cond_wait(&bcqueue_signal, &bcqueue_lock);
 		}
-		if(main_loop == 0 || bcqueue == NULL) {
-			pthread_mutex_lock(&bcqueue_lock);
+		if(main_loop == 0) {
+			pthread_mutex_unlock(&bcqueue_lock);
 			logprintf(LOG_DEBUG, "%s::unlocked", __FUNCTION__);
 			continue;
 		}
@@ -385,27 +387,20 @@ static void *broadcast(void *param) {
 				if(strcmp(bcqueue->protoname, "pilight_firmware") == 0) {
 					const struct JsonNode *code = NULL;
 					if((code = json_find_member(bcqueue->jmessage, "message")) != NULL) {
-						json_find_number(code, "version", &firmware.version);
-						json_find_number(code, "lpf", &firmware.lpf);
-						json_find_number(code, "hpf", &firmware.hpf);
-						if(firmware.version > 0 && firmware.lpf > 0 && firmware.hpf > 0) {
-							registry_set_number("pilight.firmware.version", firmware.version, 0);
-							registry_set_number("pilight.firmware.lpf", firmware.lpf, 0);
-							registry_set_number("pilight.firmware.hpf", firmware.hpf, 0);
+						firmware_t fw;
+						firmware_from_json(&fw, code);
+						if(fw.version > 0 && fw.lpf > 0 && fw.hpf > 0) {
+							firmware_to_registry(&fw);
 
 							struct JsonNode *jmessage = json_mkobject();
-							struct JsonNode *jcode = json_mkobject();
-							json_append_member(jcode, "version", json_mknumber(firmware.version, 0));
-							json_append_member(jcode, "lpf", json_mknumber(firmware.lpf, 0));
-							json_append_member(jcode, "hpf", json_mknumber(firmware.hpf, 0));
-							json_append_member(jmessage, "values", jcode);
+							json_append_member(jmessage, "values", firmware_to_json(&fw, json_mkobject()));
 							json_append_member(jmessage, "origin", json_mkstring("core"));
 							json_append_member(jmessage, "type", json_mknumber(FIRMWARE, 0));
-							const char pname[] = "pilight-firmware";
-							pilight.broadcast(pname, jmessage, FW);
+							pilight.broadcast("pilight-firmware", jmessage, FW);
 							json_delete(jmessage);
 							jmessage = NULL;
 						}
+						firmware_free_json(&fw);
 					}
 				}
 				broadcasted = 0;
@@ -588,9 +583,8 @@ static void *receive_parse_code(void *param) {
 		while(main_loop != 0 && (recvqueue = recvqueue_head) == NULL) {
 			logprintf(LOG_DEBUG, "%s::waiting", __FUNCTION__);
 			pthread_cond_wait(&recvqueue_signal, &recvqueue_lock);
-			continue;
 		}
-		if(main_loop == 0 || recvqueue  == NULL) {
+		if(main_loop == 0) {
 			pthread_mutex_unlock(&recvqueue_lock);
 			logprintf(LOG_DEBUG, "%s::unlocked", __FUNCTION__);
 			continue;
@@ -605,12 +599,11 @@ static void *receive_parse_code(void *param) {
 		pthread_mutex_unlock(&recvqueue_lock);
 		logprintf(LOG_DEBUG, "%s::unlocked", __FUNCTION__);
 
-		struct protocols_t *pnode;
+		const struct protocols_t *pnode;
 		for(pnode = protocols; pnode != NULL && main_loop; pnode = pnode->next) {
 			struct protocol_t *protocol = pnode->listener;
 
-			if(protocol == NULL || protocol->validate == NULL ||
-			  !(protocol->hwtype == recvqueue->hwtype || protocol->hwtype == -1 || recvqueue->hwtype == -1)) {
+			if(protocol == NULL || protocol->validate == NULL || !protocol_can_hwtype(protocol, recvqueue->hwtype)) {
 				continue;
 			}
 
@@ -671,7 +664,7 @@ static void *send_code(void *param) {
 			logprintf(LOG_DEBUG, "%s::waiting", __FUNCTION__);
 			pthread_cond_wait(&sendqueue_signal, &sendqueue_lock);
 		}
-		if(main_loop == 0 || sendqueue == NULL) {
+		if(main_loop == 0) {
 			pthread_mutex_unlock(&sendqueue_lock);
 			logprintf(LOG_DEBUG, "%s::unlocked", __FUNCTION__);
 			continue;
@@ -716,13 +709,12 @@ static void *send_code(void *param) {
 			}
 		}
 
-		struct conf_hardware_t *tmp_confhw = conf_hardware;
-		while(tmp_confhw) {
+		const struct conf_hardware_t *tmp_confhw = conf_hardware;
+		for (; tmp_confhw; tmp_confhw = tmp_confhw->next) {
 			if(protocol->hwtype == tmp_confhw->hardware->hwtype) {
 				hw = tmp_confhw->hardware;
 				break;
 			}
-			tmp_confhw = tmp_confhw->next;
 		}
 		if(hw != NULL) {
 			if((hw->comtype == COMOOK || hw->comtype == COMPLSTRAIN) && hw->sendOOK != NULL) {
@@ -1469,10 +1461,11 @@ static void *receivePulseTrain(void *param) {
 
 	while(main_loop != 0 && hw->receivePulseTrain != NULL && hw->stop == 0) {
 		pthread_mutex_lock(&hw->lock);
-		while(main_loop != 0 && hw->wait != 0) {
+		if(hw->wait != 0) {
 			logprintf(LOG_DEBUG, "%s::waiting", __FUNCTION__);
 			pthread_cond_wait(&hw->signal, &hw->lock);
 			logprintf(LOG_DEBUG, "%s::working", __FUNCTION__);
+			continue;
 		}
 		if(main_loop == 0 || hw->wait != 0) {
 			pthread_mutex_unlock(&hw->lock);
@@ -1484,7 +1477,7 @@ static void *receivePulseTrain(void *param) {
 		if(r.length > 0) {
 			plslen = r.pulses[r.length-1]/PULSE_DIV;
 			receive_queue(r.pulses, r.length, plslen, hw->hwtype);
-		} else if(r.length == -1) {
+		} else if(r.length < 0) {
 			hw->init();
 			sleep(1);
 		}
@@ -1494,13 +1487,21 @@ static void *receivePulseTrain(void *param) {
 	return (void *)NULL;
 }
 
+void dump_rawcode(const rawcode_t *r, const hardware_t *hw) {
+
+	int ii;
+	for(ii = 0; ii < r->length; ii++) {
+		if ((ii & 15) == 0)
+			fprintf(stdout, "\n%4d:", ii);
+		fprintf(stdout, " %4d", r->pulses[ii]);
+	}
+	if(ii)
+		fprintf(stdout, "\n%4d: min/maxgaplen=%d/%d, min/maxrawlen=%d/%d\n",
+			ii, hw->mingaplen, hw->maxgaplen, hw->minrawlen, hw->maxrawlen);
+}
+
 static void *receiveOOK(void *param) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
-
-	struct rawcode_t r;
-	r.length = 0;
-	int plslen = 0, duration = 0;
-	struct timeval tp;
 
 #ifdef _WIN32
 	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
@@ -1512,57 +1513,56 @@ static void *receiveOOK(void *param) {
 	pthread_setschedparam(pthread_self(), SCHED_FIFO, &sched);
 #endif
 
-	struct hardware_t *hw = (hardware_t *)param;
+	hardware_t *hw = (hardware_t *)param;
 	hw->running = 1;
-
+	pthread_mutex_lock(&hw->lock);
+	logprintf(LOG_DEBUG, "%s::working", __FUNCTION__);
 	while(main_loop != 0 && hw->receiveOOK != NULL && hw->stop == 0) {
-		pthread_mutex_lock(&hw->lock);
 
-		while(main_loop != 0 && hw->wait != 0) {
+		if(hw->wait != 0) {
 			logprintf(LOG_DEBUG, "%s::waiting", __FUNCTION__);
 			pthread_cond_wait(&hw->signal, &hw->lock);
 			logprintf(LOG_DEBUG, "%s::working", __FUNCTION__);
-		}
-		if(main_loop == 0 || hw->wait != 0) {
-			pthread_mutex_unlock(&hw->lock);
 			continue;
 		}
 
-		while((duration = hw->receiveOOK()) > 0) {
+		rawcode_t r;
+		r.length = 0;
+		int duration;
+		while ((duration = hw->receiveOOK()) > 0) {
+
 			if(r.length >= countof(r.pulses)) {
 				r.length = 0;
-				plslen = 0;
-				break;
 			}
 			r.pulses[r.length++] = duration;
-			if(duration > hw->mingaplen) {
-				if(duration < hw->maxgaplen) {
-					plslen = duration/PULSE_DIV;
-				}
-				/* Let's do a little filtering here as well */
-				if(r.length >= hw->minrawlen && r.length <= hw->maxrawlen) {
-					if(plslen == 0)
-						plslen = duration/PULSE_DIV;
-					receive_queue(r.pulses, r.length, plslen, hw->hwtype);
-					r.length = 0;
-					plslen = 0;
-					break;
-				}
+			if(duration < hw->mingaplen) {
+				continue;
 			}
+
+		//	dump_rawcode(&r, hw);
+
+			/* Let's do a little filtering here as well */
+			if(r.length >= hw->minrawlen && r.length <= hw->maxrawlen) {
+				int plslen = duration < hw->maxgaplen ? duration/PULSE_DIV : 0;
+				receive_queue(r.pulses, r.length, plslen, hw->hwtype);
+			}
+			break;
 		}
-		if(duration == -1) {
+
+		if(duration < 0) {
 			/* Hardware failure */
+			struct timeval tp;
 			struct timespec ts = { 0 };
 			gettimeofday(&tp, NULL);
-			ts.tv_sec = tp.tv_sec;
+			ts.tv_sec = tp.tv_sec + 1;
 			ts.tv_nsec = tp.tv_usec * 1000;
-			ts.tv_sec += 1;
+			logprintf(LOG_DEBUG, "%s::waiting", __FUNCTION__);
 			pthread_cond_timedwait(&hw->signal, &hw->lock, &ts);
-			r.length = 0;
-			plslen = 0;
+			logprintf(LOG_DEBUG, "%s::working", __FUNCTION__);
 		}
-		pthread_mutex_unlock(&hw->lock);
+
 	}
+	pthread_mutex_unlock(&hw->lock);
 	hw->running = 0;
 	return (void *)NULL;
 }
@@ -2056,6 +2056,43 @@ static void *pilight_stats(void *param) {
 	return (void *)NULL;
 }
 
+static int adjust_hardware_limits() {
+
+	conf_hardware_t *tmp_confhw = conf_hardware;
+	for(; tmp_confhw; tmp_confhw = tmp_confhw->next) {
+		hardware_t *hw = tmp_confhw->hardware;
+		if(hw == NULL || hw->init == NULL || hw->comtype != COMOOK)
+			continue;
+
+		const struct protocols_t *tmp = protocols;
+		for(; tmp; tmp = tmp->next) {
+			protocol_t *listener = tmp->listener;
+			if(!protocol_can_hwtype(listener, hw->hwtype))
+				continue;
+
+			if(listener->rawlen > 0) {
+				logprintf(LOG_EMERG, "%s: setting \"rawlen\" length is not allowed, "
+					"use the \"minrawlen\" and \"maxrawlen\" instead", listener->id);
+				return EXIT_FAILURE;
+			}
+
+			if(listener->maxrawlen > hw->maxrawlen) {
+				hw->maxrawlen = listener->maxrawlen;
+			}
+			if(listener->minrawlen > 0 && listener->minrawlen < hw->minrawlen) {
+				hw->minrawlen = listener->minrawlen;
+			}
+			if(listener->maxgaplen > hw->maxgaplen) {
+				hw->maxgaplen = listener->maxgaplen;
+			}
+			if(listener->mingaplen > 0 && listener->mingaplen < hw->mingaplen) {
+				hw->mingaplen = listener->mingaplen;
+			}
+		}
+	}
+	return EXIT_SUCCESS;
+}
+
 static int start_pilight(int argc, char **argv) {
 	struct options_t *options = NULL;
 	struct ssdp_list_t *ssdp_list = NULL;
@@ -2237,6 +2274,8 @@ static int start_pilight(int argc, char **argv) {
 	firmware.version = 0;
 	firmware.lpf = 0;
 	firmware.hpf = 0;
+	firmware.method = NULL;
+	firmware.raw_version = 0;
 
 	log_level_set(LOG_INFO);
 	log_file_enable();
@@ -2395,36 +2434,8 @@ static int start_pilight(int argc, char **argv) {
 		goto clear;
 	}
 #endif
-
-	struct conf_hardware_t *tmp_confhw = conf_hardware;
-	while(tmp_confhw) {
-		if(tmp_confhw->hardware->init) {
-			if(tmp_confhw->hardware->comtype == COMOOK) {
-				struct protocols_t *tmp = protocols;
-				while(tmp) {
-					if(tmp->listener->hwtype == tmp_confhw->hardware->hwtype) {
-						if(tmp->listener->maxrawlen > tmp_confhw->hardware->maxrawlen) {
-							tmp_confhw->hardware->maxrawlen = tmp->listener->maxrawlen;
-						}
-						if(tmp->listener->minrawlen > 0 && tmp->listener->minrawlen < tmp_confhw->hardware->minrawlen) {
-							tmp_confhw->hardware->minrawlen = tmp->listener->minrawlen;
-						}
-						if(tmp->listener->maxgaplen > tmp_confhw->hardware->maxgaplen) {
-							tmp_confhw->hardware->maxgaplen = tmp->listener->maxgaplen;
-						}
-						if(tmp->listener->mingaplen > 0 && tmp->listener->mingaplen < tmp_confhw->hardware->mingaplen) {
-							tmp_confhw->hardware->mingaplen = tmp->listener->mingaplen;
-						}
-						if(tmp->listener->rawlen > 0) {
-							logprintf(LOG_EMERG, "%s: setting \"rawlen\" length is not allowed, use the \"minrawlen\" and \"maxrawlen\" instead", tmp->listener->id);
-							goto clear;
-						}
-					}
-					tmp = tmp->next;
-				}
-			}
-		}
-		tmp_confhw = tmp_confhw->next;
+	if (adjust_hardware_limits() != EXIT_SUCCESS) {
+		goto clear;
 	}
 
 	settings_find_number("port", &port);
@@ -2513,7 +2524,7 @@ static int start_pilight(int argc, char **argv) {
 	threads_register("sender", &send_code, (void *)NULL, 0);
 	threads_register("broadcaster", &broadcast, (void *)NULL, 0);
 
-	tmp_confhw = conf_hardware;
+	struct conf_hardware_t *tmp_confhw = conf_hardware;
 	while(tmp_confhw && main_loop) {
 		if(tmp_confhw->hardware->init) {
 			if(tmp_confhw->hardware->init() == EXIT_FAILURE) {

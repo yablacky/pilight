@@ -20,11 +20,13 @@
 #define _FIRMWARE_H_
 
 typedef struct firmware_t {
-	double lpf;
-	double hpf;
-	double version;
+	double version;		// firmware version (cooked number).
+	double lpf;		// minimum pulse lenght [us] that passes the filter.
+	double hpf;		// maximum pulse length [us] that passes the filter.
+	const char *method;	// filter method (since version 4)
+	double raw_version;	// version number as received from firmware.
 } firmware_t;
-struct firmware_t firmware;
+firmware_t firmware;
 
 typedef enum {
 	FW_PROG_OP_FAIL = 1,
@@ -47,6 +49,12 @@ typedef enum {
 	FW_MP_ATMEL328P,
 	FW_MP_ATMEL32U4
 } mptype_t;
+
+firmware_t *firmware_from_hw(firmware_t *result, double version, double lpf, double hpf);
+firmware_t *firmware_from_json(firmware_t *fw, const JsonNode *source);
+void firmware_free_json(firmware_t *fw);	// must be called after firmware_from_json().
+JsonNode *firmware_to_json(const firmware_t *fw, JsonNode *target);
+void firmware_to_registry(const firmware_t *fw);
 
 int firmware_update(char *fwfile, char *comport);
 int firmware_getmp(char *comport);

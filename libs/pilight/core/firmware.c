@@ -62,6 +62,7 @@
 #include "../../avrdude/avrupd.h"
 #include "../../avrdude/safemode.h"
 #include "../config/settings.h"
+#include "../config/registry.h"
 #include "firmware.h"
 #include "pilight.h"
 #include "common.h"
@@ -1257,4 +1258,71 @@ int firmware_update(char *fwfile, char *port) {
 		mptype = FW_MP_UNKNOWN;
 		return ret;
 	}
+}
+
+firmware_t *firmware_from_hw(firmware_t *result, double version, double lpf, double hpf)
+{
+	firmware_t fw = { 0 };
+	fw.raw_version = version;
+	fw.lpf = lpf;
+	fw.hpf = hpf;
+
+	unsigned int v = (int) version;
+	unsigned int method = v / 100;
+	fw.version = v = v % 100;
+	if(v < 4 && method == 0) {
+		method = 3;
+	}
+	static const char * const filter[] = {
+		"version 4, initial mode",	// never changed by firmware-control
+		"no-operation",
+		"test-signal",
+		"version 3",
+		"version 4",
+	};
+	if (method < countof(filter)) {
+		fw.method = filter[method];
+	} else {
+		static char unknown_method[64];	// not re-entrant/theadsafe. but wont allocate.
+		sprintf(unknown_method, "unknown %d", method);
+		fw.method = unknown_method;
+	}
+	if(result != NULL)
+		*result = fw;
+	return result;
+}
+
+JsonNode *firmware_to_json(const firmware_t *fw, JsonNode *target)
+{
+	json_append_member(target, "raw-version", json_mknumber(fw->raw_version, 2));
+	json_append_member(target, "version", json_mknumber(fw->version, 2));
+	json_append_member(target, "lpf", json_mknumber(fw->lpf, 0));
+	json_append_member(target, "hpf", json_mknumber(fw->hpf, 0));
+	json_append_member(target, "method", json_mkstring(fw->method ? fw->method : ""));
+	return target;
+}
+firmware_t *firmware_from_json(firmware_t *fw, const JsonNode *source)
+{
+	firmware_t zero = { 0 };
+	*fw = zero;
+	json_find_number(source, "version", &fw->version);
+	json_find_number(source, "lpf", &fw->lpf);
+	json_find_number(source, "hpf", &fw->hpf);
+	json_find_string(source, "method", &fw->method);
+	json_find_number(source, "raw-version", &fw->raw_version);
+	return fw;
+}
+void firmware_free_json(firmware_t *fw)
+{
+	FREE(fw->method);
+	fw->method = NULL;
+}
+
+void firmware_to_registry(const firmware_t *fw)
+{
+	registry_set_number("pilight.firmware.version", fw->version, 0);
+	registry_set_number("pilight.firmware.lpf", fw->lpf, 0);
+	registry_set_number("pilight.firmware.hpf", fw->hpf, 0);
+	registry_set_string("pilight.firmware.method", fw->method ? fw->method : "");
+	registry_set_number("pilight.firmware.raw_version", fw->raw_version, 0);
 }

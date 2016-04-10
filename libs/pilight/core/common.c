@@ -102,46 +102,56 @@ void atomicunlock(void) {
 	pthread_mutex_unlock(&atomic_lock);
 }
 
-void array_free(char ***array, int len) {
-	int i = 0;
-	if(len > 0) {
-		for(i=0;i<len;i++) {
-			FREE((*array)[i]);
-		}
+char **array_init(size_t len, const char *initial_value) {
+	if(len == 0)
+		return NULL;
+	char **array = MALLOC_OR_EXIT(len * sizeof(char*));
+	while(--len >= 0) {
+		array[len] = initial_value ? STRDUP_OR_EXIT(initial_value) : NULL;
+	}
+	return array;
+}
+
+size_t array_push(char ***array, size_t len, const char *str, int str_len) {
+	*array = REALLOC_OR_EXIT(*array, sizeof(char *)*(len + 1));
+	if(str_len < 0)
+		(*array)[len] = STRDUP_OR_EXIT(str);
+	else {
+		(*array)[len] = MALLOC_OR_EXIT(str_len + 1);
+		memcpy((*array)[len], str, str_len);
+		(*array)[len][str_len] = '\0';
+	}
+	return len + 1;
+}
+
+void array_free(char ***array, size_t len) {
+	while(len-- > 0)	// note: (--len >= 0) goes wrong for unsigned types!
+		FREE((*array)[len]);
+	if(array) {
 		FREE((*array));
 		*array = NULL;
 	}
 }
 
-unsigned int explode(const char *str, const char *delimiter, char ***output) {
+size_t explode(const char *str, const char *delimiter, char ***output) {
 	if(str == NULL || output == NULL) {
 		return 0;
 	}
-	unsigned int i = 0, n = 0, y = 0;
-	size_t l = 0, p = 0;
-	if(delimiter != NULL) {
-		l = strlen(str);
-		p = strlen(delimiter);
+	if(delimiter == NULL) {
+		return array_push(output, 0, str, -1);
 	}
-	while(i < l) {
-		if(strncmp(&str[i], delimiter, p) == 0) {
-			if((i-y) > 0) {
-				*output = REALLOC_OR_EXIT(*output, sizeof(char *)*(n+1));
-				(*output)[n] = MALLOC_OR_EXIT((i-y)+1);
-				strncpy((*output)[n], &str[y], i-y);
-				(*output)[n][(i-y)] = '\0';
-				n++;
-			}
-			y=i+p;
-		}
-		i++;
+	size_t n = 0;
+	size_t delimiter_len = strlen(delimiter);
+	const char *found = NULL;
+
+	while((found = strstr(str, delimiter)) != NULL) {
+		n = array_push(output, n, str, found - str);
+		str = found + delimiter_len;
 	}
-	if(strlen(&str[y]) > 0) {
-		*output = REALLOC_OR_EXIT(*output, sizeof(char *)*(n+1));
-		(*output)[n] = MALLOC_OR_EXIT((i-y)+1);
-		strncpy((*output)[n], &str[y], i-y);
-		(*output)[n][(i-y)] = '\0';
-		n++;
+
+	// Ignore the last part if emtpy (--> empty string generates emtpy array rather array with one empty string).
+	if(*str) {
+		n = array_push(output, n, str, -1);
 	}
 	return n;
 }
@@ -285,121 +295,72 @@ pid_t findproc(const char *cmd, const char *args, int loosely) {
 	DIR* dir;
 	struct dirent* ent;
 	char fname[512], cmdline[1024];
-	int fd = 0, ptr = 0, match = 0, i = 0, y = '\n', x = 0;
+	int fd = 0, ptr = 0, i = 0, y = '\n';
 
 	if(procmounted == 0) {
-		if((dir = opendir("/proc"))) {
-			i = 0;
-			while((ent = readdir(dir)) != NULL) {
-				i++;
-			}
-			closedir(dir);
-			if(i == 2) {
-#ifdef __FreeBSD__
-				mount("procfs", "/proc", 0, "");
-#else
-				mount("proc", "/proc", "procfs", 0, "");
-#endif
-				if((dir = opendir("/proc"))) {
-					i = 0;
-					while((ent = readdir(dir)) != NULL) {
-						i++;
-					}
-					closedir(dir);
-					if(i == 2) {
-						logprintf(LOG_ERR, "/proc filesystem not properly mounted");
-						return -1;
-					}
-				}
-			}
-		} else {
+		if(!(dir = opendir("/proc"))) {
 			logprintf(LOG_ERR, "/proc filesystem not properly mounted");
 			return -1;
 		}
-		procmounted = 1;
-	}
-	if((dir = opendir("/proc"))) {
-		while((ent = readdir(dir)) != NULL) {
-			if(isNumeric(ent->d_name) == 0) {
-				snprintf(fname, sizeof(fname), "/proc/%s/cmdline", ent->d_name);
-				if((fd = open(fname, O_RDONLY, 0)) > -1) {
-					memset(cmdline, '\0', sizeof(cmdline));
-					if((ptr = (int)read(fd, cmdline, sizeof(cmdline)-1)) > -1) {
-						i = 0, match = 0, y = '\n';
-						/* Replace all NULL terminators for newlines */
-						for(i=0;i<ptr-1;i++) {
-							if(i < ptr && cmdline[i] == '\0') {
-								cmdline[i] = (char)y;
-								y = ' ';
-							}
-						}
-
-						match = 0;
-						/* Check if program matches */
-						char **array = NULL;
-						unsigned int n = explode(cmdline, "\n", &array);
-
-						if(n == 0) {
-							close(fd);
-							continue;
-						}
-						if((strcmp(array[0], cmd) == 0 && loosely == 0)
-							 || (strstr(array[0], cmd) != NULL && loosely == 1)) {
-							match++;
-						}
-
-						if(args != NULL && match == 1) {
-							if(n <= 1) {
-								close(fd);
-								for(x=0;x<n;x++) {
-									FREE(array[x]);
-								}
-								if(n > 0) {
-									FREE(array);
-								}
-								continue;
-							}
-							if(strcmp(array[1], args) == 0) {
-								match++;
-							}
-
-							if(match == 2) {
-								pid_t pid = (pid_t)atol(ent->d_name);
-								close(fd);
-								closedir(dir);
-								for(x=0;x<n;x++) {
-									FREE(array[x]);
-								}
-								if(n > 0) {
-									FREE(array);
-								}
-								return pid;
-							}
-						} else if(match > 0) {
-							pid_t pid = (pid_t)atol(ent->d_name);
-							close(fd);
-							closedir(dir);
-							for(x=0;x<n;x++) {
-								FREE(array[x]);
-							}
-							if(n > 0) {
-								FREE(array);
-							}
-							return pid;
-						}
-						for(x=0;x<n;x++) {
-							FREE(array[x]);
-						}
-						if(n > 0) {
-							FREE(array);
-						}
-					}
-					close(fd);
+		for(i = 0; readdir(dir) != NULL; i++)
+			;
+		closedir(dir);
+		if(i == 2) {
+#ifdef __FreeBSD__
+			mount("procfs", "/proc", 0, "");
+#else
+			mount("proc", "/proc", "procfs", 0, "");
+#endif
+			if((dir = opendir("/proc"))) {
+				for(i = 0; readdir(dir) != NULL; i++)
+					;
+				closedir(dir);
+				if(i == 2) {
+					logprintf(LOG_ERR, "/proc filesystem not properly mounted");
+					return -1;
 				}
 			}
 		}
-		closedir(dir);
+		procmounted = 1;
 	}
+	if(!(dir = opendir("/proc"))) {
+		return -1;
+	}
+	while((ent = readdir(dir)) != NULL) {
+		if(isNumeric(ent->d_name) != 0) {
+			continue;
+		}
+		snprintf(fname, sizeof(fname), "/proc/%s/cmdline", ent->d_name);
+		if((fd = open(fname, O_RDONLY, 0)) < 0) {
+			continue;
+		}
+		ptr = (int)read(fd, cmdline, sizeof(cmdline)-1);
+		close(fd);
+		if(ptr < 0) {
+			continue;
+		}
+		i = 0, y = '\n';
+		/* Replace all NULL terminators for newlines */
+		for(i=0;i<ptr-1;i++) {
+			if(i < ptr && cmdline[i] == '\0') {
+				cmdline[i] = (char)y;
+				y = ' ';
+			}
+		}
+
+		/* Check if program matches */
+		char **array = NULL;
+		unsigned int n = explode(cmdline, "\n", &array);
+		if(n > 0
+		    && loosely ? strstr(array[0], cmd) != NULL : strcmp(array[0], cmd) == 0
+		    && (args == NULL || (n >= 2 && strcmp(array[1], args) == 0))) {
+			array_free(&array, n);
+			closedir(dir);
+			return (pid_t)atol(ent->d_name);
+		}
+		array_free(&array, n);
+	}
+	closedir(dir);
 #endif
 	return -1;
 }
@@ -687,13 +648,16 @@ char *base64encode(const char *src, size_t len) {
   return enc;
 }
 
-void rmsubstr(char *s, const char *r) {
+size_t rmsubstr(char *str, const char *rem) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	while((s=strstr(s, r))) {
-		size_t l = strlen(r);
-		memmove(s, s+l, 1+strlen(s+l));
+	size_t cnt = 0;
+	size_t len = strlen(rem);
+	while((str = strstr(str, rem)) != NULL) {
+		memmove(str, str+len, strlen(str+len) + 1);
+		cnt++;
 	}
+	return cnt;
 }
 
 char *hostname(void) {
@@ -930,72 +894,84 @@ int vercmp(const char *val, const char *ref) {
 	}
 }
 
-char *uniq_space(char *str){
-	char *from = NULL, *to = NULL;
-	int spc=0;
-	to = from = str;
-	while(1){
-		if(spc == 1 && *from == ' ' && to[-1] == ' ') {
-			++from;
-		} else {
-			spc = (*from == ' ') ? 1 : 0;
-			*to++ = *from++;
-			if(!to[-1]) {
-				break;
-			}
-		}
+char *uniq_space(char *str) {
+	char *from = str, *to = str;
+
+	while((*to++) == (*from++)) {
+		if(to[-1] == ' ' || (to[-1] == '\t' && (to[-1] = ' '))) // convert tab to blank.
+			while(*from == ' ' || *from == '\t')
+				from++;
 	}
 	return str;
+}
+
+size_t str_replacen(const char *search, const char *replace, char **str) {
+	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
+
+	if(!str || !*str) {
+		return 0;
+	}
+	if(!search || !*search) {
+		return 0;
+	}
+	char *target = *str;
+	size_t match = 0;
+	size_t rlen = replace ? strlen(replace) : 0;
+	if(rlen == 0) {
+		match = rmsubstr(target, search);
+		if(match) {
+			*str = target = REALLOC_OR_EXIT(target, strlen(target)+1);
+		}
+		return match;
+	}
+
+	size_t slen = strlen(search);
+	if(slen == rlen) {
+		while((target = strstr(target, search)) != 0) {
+			memcpy(target, replace, rlen);
+			target += slen;
+			match++;
+		}
+		return match;
+	}
+
+	while((target = strstr(target, search)) != 0) {
+		target += slen;
+		match++;
+	}
+	if(match) {
+		char *source = *str, *src;
+		char *dst = target = MALLOC_OR_EXIT(strlen(source) + match*rlen - match*slen);
+
+		while((src = strstr(source, search)) != 0) {
+			size_t len = src - source;
+			memcpy(dst, source, len);
+			memcpy(dst += len, replace, rlen);
+			dst += rlen;
+			source = src + slen;
+		}
+		strcpy(dst, source);
+
+		FREE(*str);
+		*str = target;
+	}
+	return match;
 }
 
 int str_replace(const char *search, const char *replace, char **str) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	char *target = *str;
-	unsigned short match = 0;
-	int len = (int)strlen(target);
-	int nlen = 0;
-	int slen = (int)strlen(search);
-	int rlen = (int)strlen(replace);
-	int x = 0;
-
-	while(x < len) {
-		if(strncmp(&target[x], search, (size_t)slen) == 0) {
-			match = 1;
-			int rpos = (x + (slen - rlen));
-			if(rpos < 0) {
-				slen -= rpos;
-				rpos = 0;
-			}
-			nlen = len - (slen - rlen);
-			if(len < nlen) {
-				if((target = REALLOC(target, (size_t)nlen+1)) == NULL) {
-					fprintf(stderr, "out of memory\n");
-					exit(EXIT_FAILURE);
-				}
-				memset(&target[len], '\0', (size_t)(nlen-len));
-			}
-			len = nlen;
-
-			memmove(&target[x], &target[rpos], (size_t)(len-x));
-			strncpy(&target[x], replace, (size_t)rlen);
-			target[len] = '\0';
-			x += rlen-1;
-		}
-		x++;
-	}
-	if(match == 1) {
-		return (int)len;
-	} else {
-		return -1;
-	}
+	// Generate strange return value...
+	return str_replacen(search, replace, str) ? (int) strlen(*str) : -1;
 }
 
 int stricmp(char const *a, char const *b) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	for(;; a++, b++) {
-			int d = tolower(*a) - tolower(*b);
+			int d = *a - *b;
+			if(d != 0)
+				d = tolower(*a) - tolower(*b);
 			if(d != 0 || !*a)
 				return d;
 	}
@@ -1058,6 +1034,16 @@ char *str_trim_right(char *str, const char *trim_away) {
 	return str;
 }
 
+char *str_trim_left(char *str, const char *trim_away) {
+	return str != NULL && trim_away != NULL && *trim_away != '\0'
+		? str + strspn(str, trim_away)
+		: str;
+}
+
+char *str_trim(char *str, const char *trim_away) {
+	return str_trim_left(str_trim_right(str, trim_away), trim_away);
+}
+
 int checkdnsrr(const char *domain, const char *type)
 {
 	logprintf(LOG_STACK, "%s(%s,%s)", __FUNCTION__, domain ? domain : "(NULL)", type ? type : "(NULL)");
@@ -1094,8 +1080,7 @@ int check_email_addr(const char *address, int allow_lists, int check_domain_can_
 			break;	// only one address allowed.
 		}
 		addr = addr_list[ii];
-		addr += strspn(addr, white_spaces);	// trim left
-		str_trim_right(addr, white_spaces);
+		addr = str_trim(addr, white_spaces);
 
 		// Now check addr. First some quick pre-checks:
 		at = strchr(addr, '@');

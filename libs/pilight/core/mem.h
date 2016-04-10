@@ -33,13 +33,13 @@ void _free(void *a, const char *file, int line);
 #define MALLOC(a) _malloc(a, __FILE__, __LINE__)
 #define REALLOC(a, b) _realloc(a, b, __FILE__, __LINE__)
 #define CALLOC(a, b) _calloc(a, b, __FILE__, __LINE__)
-#define FREE(a) _free((void *)(a), __FILE__, __LINE__),(a)=NULL
+#define FREE(a) _free((void *)(a), __FILE__, __LINE__),(a)=NULL	// WARNING: with twice (a) FREE(a[i++]) will go wrong!
 */
 
 #define MALLOC(a) malloc(a)
 #define REALLOC(a, b) realloc(a, b)
 #define CALLOC(a, b) calloc(a, b)
-#define FREE(a) free((void *)(a)),(a)=NULL
+#define FREE(a) free((void *)(a)),(a)=NULL	// WARNING: with twice (a) FREE(a[i++]) will go wrong!
 
 void *_malloc_or_exit(unsigned long a, const char *file, int line);
 void *_realloc_or_exit(void *a, unsigned long b, const char *file, int line);

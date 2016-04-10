@@ -22,6 +22,12 @@
 #include <unistd.h>
 #include <errno.h>
 
+#define FILTER_WILDCARDS 1
+
+#ifdef FILTER_WILDCARDS
+#include <fnmatch.h>
+#endif
+
 #include "libs/pilight/core/pilight.h"
 #include "libs/pilight/core/common.h"
 #include "libs/pilight/config/settings.h"
@@ -34,8 +40,8 @@
 static int main_loop = 1;
 static int sockfd = 0;
 static char *recvBuff = NULL;
-char **filters = NULL;
-unsigned int m = 0;
+static char **filters = NULL;
+static unsigned int nfilter = 0;
 
 int main_gc(void) {
 	main_loop = 0;
@@ -79,6 +85,7 @@ int main(int argc, char **argv) {
 	char *server = NULL;
 	char *filter = NULL;
 	unsigned short port = 0;
+	unsigned short filteronly = 0;
 	unsigned short stats = 0;
 	unsigned short filteropt = 0;
 
@@ -90,6 +97,7 @@ int main(int argc, char **argv) {
 	options_add(&options, 'P', "port", OPTION_HAS_VALUE, 0, JSON_NULL, NULL, "[0-9]{1,4}");
 	options_add(&options, 's', "stats", OPTION_NO_VALUE, 0, JSON_NULL, NULL, "[0-9]{1,4}");
 	options_add(&options, 'F', "filter", OPTION_HAS_VALUE, 0, JSON_STRING, NULL, NULL);
+	options_add(&options, 'o', "only", OPTION_NO_VALUE, 0, JSON_STRING, NULL, NULL);
 
 	/* Store all CLI arguments for later usage
 	   and also check if the CLI arguments where
@@ -109,7 +117,8 @@ int main(int argc, char **argv) {
 				printf("\t -S --server=x.x.x.x\t\tconnect to server address\n");
 				printf("\t -P --port=xxxx\t\t\tconnect to server port\n");
 				printf("\t -s --stats\t\t\tshow CPU and RAM statistics\n");
-				printf("\t -F --filter=protocol\t\tfilter out protocol(s)\n");
+				printf("\t -F --filter=protocol[,protocol]...\t\tdon't print protocol(s)\n");
+				printf("\t -o --only\t\t\trevert filter: only print --filter protocols(s)\n");
 				exit(EXIT_SUCCESS);
 			break;
 			case 'V':
@@ -130,6 +139,9 @@ int main(int argc, char **argv) {
 				strcpy(filter, args);
 				filteropt = 1;
 			break;
+			case 'o':
+				filteronly = 1;
+			break;
 			default:
 				printf("Usage: %s \n", progname);
 				exit(EXIT_SUCCESS);
@@ -139,30 +151,56 @@ int main(int argc, char **argv) {
 	options_delete(options);
 
 	if(filteropt == 1) {
-		struct protocol_t *protocol = NULL;
-		m = explode(filter, ",", &filters);
-		int match = 0, j = 0;
+		nfilter = explode(filter, ",", &filters);
+		int j = 0;
 		
 		protocol_init();
 
-		for(j=0;j<m;j++) {
-			match = 0;
-			struct protocols_t *pnode = protocols;
-			if(filters[j] != NULL && strlen(filters[j]) > 0) {
-				while(pnode) {
-					protocol = pnode->listener;
-					if(protocol_device_exists(protocol, filters[j]) == 0 && match == 0) {
-						match = 1;
+		for(j=0;j<nfilter;j++) {
+			if(filters[j] == NULL)
+				continue;
+			strcpy(filters[j], str_trim(filters[j], " \t"));
+
+			size_t nmatch = 0;
+#ifdef FILTER_WILDCARDS
+			char **smatch = array_init(0, NULL);
+#endif
+			struct protocols_t *pnode;
+			for(pnode = protocols; pnode; pnode = pnode->next) {
+				if(!pnode->listener)
+					continue;
+				const char *p = NULL;
+				int ii = 0;
+				while((p = protocol_device_enum(pnode->listener, ii++)) != NULL) {
+#ifdef FILTER_WILDCARDS
+					if(fnmatch(filters[j], p, 0) == 0)
+						nmatch = array_push(&smatch, nmatch, p, -1);
+#else
+					if(strcmp(filters[j], p) == 0 && (++nmatch))
 						break;
-					}
-					pnode = pnode->next;
+#endif
 				}
-				if(match == 0) {
-					logprintf(LOG_ERR, "Invalid protocol: %s", filters[j]);
-					goto close;
-				}
+				if(p!=NULL)
+					break;
 			}
+
+			if(!nmatch) {
+				logprintf(LOG_ERR, "Invalid protocol: '%s'", filters[j]);
+				goto close;
+			}
+#ifdef FILTER_WILDCARDS
+			printf("Found %d protocols for filter '%s':\n", nmatch, filters[j]);
+			int nn;
+			for(nn = 0; nn < nmatch; nn++) {
+				printf("\t'%s'\n", smatch[nn]);
+			}
+			array_free(&smatch, nmatch);
+#endif
 		}
+	}
+	if(filteronly && nfilter == 0) {
+		logprintf(LOG_ERR, "--only without --filter prints nothing.");
+		goto close;
 	}
 
 	if(server != NULL && port > 0) {
@@ -218,15 +256,18 @@ int main(int argc, char **argv) {
 				jtype = NULL;
 			}
 			if(filteropt == 1) {
-				int filtered = 0, j = 0;
+				int j;
 				json_find_string(jcontent, "protocol", &protocol);
-				for(j=0;j<m;j++) {
-					if(strcmp(filters[j], protocol) == 0) {
-						filtered = 1;
+				for(j=nfilter; --j >= 0; ) {
+#ifdef FILTER_WILDCARDS
+					if(fnmatch(filters[j], protocol, 0) == 0)
 						break;
-					}
+#else
+					if(strcmp(filters[j], protocol) == 0)
+						break;
+#endif
 				}
-				if(filtered == 0) {
+				if(filteronly ? j >= 0 : j < 0) {
 					char *content = json_stringify(jcontent, "\t");
 					printf("%s\n", content);
 					json_free(content);
@@ -253,7 +294,9 @@ close:
 		FREE(filter);
 		filter = NULL;	
 	}
-	array_free(&filters, m);
+	array_free(&filters, nfilter);
+	filters = NULL;
+	nfilter = 0;
 	protocol_gc();
 	options_gc();
 	log_shell_disable();

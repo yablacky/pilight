@@ -128,7 +128,8 @@ void protocol_set_id(protocol_t *proto, const char *id);
 void protocol_plslen_add(protocol_t *proto, int plslen);
 void protocol_register(protocol_t **proto);
 void protocol_device_add(protocol_t *proto, const char *id, const char *desc);
-int protocol_device_exists(protocol_t *proto, const char *id);
+int protocol_device_exists(const protocol_t *proto, const char *id);
+const char *protocol_device_enum(const protocol_t *proto, int index);
 int protocol_gc(void);
 
 #endif

@@ -43,7 +43,7 @@
 struct protocols_t *protocols;
 
 #ifndef _WIN32
-void protocol_remove(char *name) {
+static void protocol_remove(const char *name) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	struct protocols_t *currP, *prevP;
@@ -105,7 +105,6 @@ void protocol_init(void) {
 	char pilight_commit[3];
 	const char *stmp = NULL;
 	char *protocol_root = NULL;
-	int check1 = 0, check2 = 0, valid = 1;
 
 	struct dirent *file = NULL;
 	DIR *d = NULL;
@@ -126,57 +125,56 @@ void protocol_init(void) {
                 protocol_root = STRDUP_OR_EXIT(b);
         }
 
-
 	if((d = opendir(protocol_root))) {
 		while((file = readdir(d)) != NULL) {
-			memset(path, '\0', PATH_MAX);
 			sprintf(path, "%s%s", protocol_root, file->d_name);
-			if(stat(path, &s) == 0) {
-				/* Check if file */
-				if(S_ISREG(s.st_mode)) {
-					if(strstr(file->d_name, ".so") != NULL) {
-						valid = 1;
-						if((handle = dso_load(path)) != NULL) {
-
-							init = dso_function(handle, "init");
-							compatibility = dso_function(handle, "compatibility");
-							if(init != NULL && compatibility != NULL) {
-								compatibility(&module);
-								if(module.name != NULL && module.version != NULL && module.reqversion != NULL) {
-
-									if((check1 = vercmp(module.reqversion, pilight_version)) > 0) {
-										valid = 0;
-									}
-
-									if(check1 == 0 && module.reqcommit != NULL) {
-										sscanf(HASH, "v%*[0-9].%*[0-9]-%[0-9]-%*[0-9a-zA-Z\n\r]", pilight_commit);
-
-										if(strlen(pilight_commit) > 0 && (check2 = vercmp(module.reqcommit, pilight_commit)) > 0) {
-											valid = 0;
-										}
-									}
-									if(valid == 1) {
-										char tmp[strlen(module.name)+1];
-										strcpy(tmp, module.name);
-										protocol_remove(tmp);
-										init();
-										logprintf(LOG_DEBUG, "loaded protocol %s v%s", file->d_name, module.version);
-									} else {
-										if(module.reqcommit != NULL) {
-											logprintf(LOG_ERR, "protocol %s requires at least pilight v%s (commit %s)", file->d_name, module.reqversion, module.reqcommit);
-										} else {
-											logprintf(LOG_ERR, "protocol %s requires at least pilight v%s", file->d_name, module.reqversion);
-										}
-									}
-								} else {
-									logprintf(LOG_ERR, "invalid module %s", file->d_name);
-								}
-							}
-						}
-					}
-				}
-			} else {
+			if(stat(path, &s) != 0) {
 				perror("stat");
+				continue;
+			}
+			/* Check if file */
+			if(!S_ISREG(s.st_mode)) {
+				continue;
+			}
+			if(strstr(file->d_name, ".so") == NULL) {
+				continue;
+			}
+			if((handle = dso_load(path)) == NULL) {
+				continue;
+			}
+
+			init = dso_function(handle, "init");
+			compatibility = dso_function(handle, "compatibility");
+			if(init == NULL || compatibility == NULL) {
+				continue;
+			}
+			compatibility(&module);
+			if(module.name == NULL || module.version == NULL || module.reqversion == NULL) {
+				logprintf(LOG_ERR, "invalid module %s", file->d_name);
+				continue;
+			}
+			int check1 = 0, check2 = 0, valid = 1;
+			if((check1 = vercmp(module.reqversion, pilight_version)) > 0) {
+				valid = 0;
+			}
+
+			if(check1 == 0 && module.reqcommit != NULL) {
+				sscanf(HASH, "v%*[0-9].%*[0-9]-%[0-9]-%*[0-9a-zA-Z\n\r]", pilight_commit);
+
+				if(strlen(pilight_commit) > 0 && (check2 = vercmp(module.reqcommit, pilight_commit)) > 0) {
+					valid = 0;
+				}
+			}
+			if(valid == 1) {
+				protocol_remove(module.name);
+				init();
+				logprintf(LOG_DEBUG, "loaded protocol %s v%s", file->d_name, module.version);
+			} else {
+				if(module.reqcommit != NULL) {
+					logprintf(LOG_ERR, "protocol %s requires at least pilight v%s (commit %s)", file->d_name, module.reqversion, module.reqcommit);
+				} else {
+					logprintf(LOG_ERR, "protocol %s requires at least pilight v%s", file->d_name, module.reqversion);
+				}
 			}
 		}
 		closedir(d);
@@ -282,19 +280,16 @@ void protocol_thread_stop(protocol_t *proto) {
 void protocol_thread_free(protocol_t *proto) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	if(proto != NULL && proto->threads != NULL) {
-		struct protocol_threads_t *tmp;
+	if(proto != NULL) {
 		while(proto->threads) {
-			tmp = proto->threads;
 			if(proto->threads->param != NULL) {
 				json_delete(proto->threads->param);
 			}
+			struct protocol_threads_t *tmp = proto->threads;
 			proto->threads = proto->threads->next;
 			FREE(tmp);
 		}
-		if(proto->threads != NULL) {
-			FREE(proto->threads);
-		}
+		FREE(proto->threads);
 	}
 }
 
@@ -314,19 +309,28 @@ void protocol_device_add(protocol_t *proto, const char *id, const char *desc) {
 	CONFIG_PREPEND_NODE_TO_LIST(dnode, proto->devices);
 }
 
-int protocol_device_exists(protocol_t *proto, const char *id) {
+int protocol_device_exists(const protocol_t *proto, const char *id) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	struct protocol_devices_t *temp = proto->devices;
 
-	while(temp) {
-		if(strcmp(temp->id, id) == 0) {
+	for(; temp; temp = temp->next)
+		if(strcmp(temp->id, id) == 0)
 			return 0;
-		}
-		temp = temp->next;
-	}
 
 	return 1;
+}
+
+const char *protocol_device_enum(const protocol_t *proto, int index) {
+	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
+
+	struct protocol_devices_t *temp = proto->devices;
+
+	for(; temp; temp = temp->next)
+		if(temp->id && --index < 0)
+			return temp->id;
+
+	return NULL;
 }
 
 int protocol_gc(void) {

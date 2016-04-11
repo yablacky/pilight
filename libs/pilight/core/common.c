@@ -124,13 +124,14 @@ size_t array_push(char ***array, size_t len, const char *str, int str_len) {
 	return len + 1;
 }
 
-void array_free(char ***array, size_t len) {
+size_t array_free(char ***array, size_t len) {
 	while(len-- > 0)	// note: (--len >= 0) goes wrong for unsigned types!
 		FREE((*array)[len]);
 	if(array) {
 		FREE((*array));
 		*array = NULL;
 	}
+	return 0;
 }
 
 size_t explode(const char *str, const char *delimiter, char ***output) {

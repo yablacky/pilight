@@ -69,8 +69,9 @@ size_t array_push(char ***array, size_t len, const char *str, int str_len);
  * Destroy an array from array_init().
  * @param char*** Address of the array.
  * @param int len Current size of array.
+ * @return int New length of array (always zero).
  */
-void array_free(char ***array, size_t len);
+size_t array_free(char ***array, size_t len);
 
 /**
  * Split a string and create array of sub-strings.

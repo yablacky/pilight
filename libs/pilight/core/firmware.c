@@ -1274,11 +1274,11 @@ firmware_t *firmware_from_hw(firmware_t *result, double version, double lpf, dou
 		method = 3;
 	}
 	static const char * const filter[] = {
-		"version 4, initial mode",	// never changed by firmware-control
+		"filter-V4, initial-mode",	// never changed by firmware-control
 		"no-operation",
 		"test-signal",
-		"version 3",
-		"version 4",
+		"filter-V3",
+		"filter-V4",
 	};
 	if (method < countof(filter)) {
 		fw.method = filter[method];

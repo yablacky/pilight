@@ -525,7 +525,7 @@ static void receiver_create_message(protocol_t *protocol, const char *msg_name, 
 			json_append_member(jmessage, "origin", json_mkstring("receiver"));
 
 			char origin_msg_id[strlen(msg_name) + 64];
-			sprintf(origin_msg_id, "%s#%ul", msg_name, msg_id);
+			sprintf(origin_msg_id, "%s#%u", msg_name, msg_id);
 			json_append_member(jmessage, "origin-msg-id", json_mkstring(origin_msg_id));
 
 			json_append_member(jmessage, "protocol", json_mkstring(protocol->id));
@@ -1699,22 +1699,22 @@ static void *clientize(void *param) {
 			char **array = NULL;
 			unsigned int z = explode(recvBuff, "\n", &array), q = 0;
 			for(q=0;q<z;q++) {
-				if(json_validate(array[q], NULL) == true) {
-					json = json_decode(array[q]);
-					if(json_find_string(json, "action", &action) == 0) {
-						if(strcmp(action, "send") == 0 ||
-						   strcmp(action, "control") == 0) {
-							socket_parse_data(sockfd, array[q]);
-						}
-					} else if(json_find_string(json, "origin", &origin) == 0 &&
-							json_find_string(json, "protocol", &protocol) == 0) {
-							if(strcmp(origin, "receiver") == 0 ||
-								 strcmp(origin, "sender") == 0) {
-								broadcast_queue(protocol, json, NODE);
-						}
-					}
-					json_delete(json);
+				if((json = json_decode(array[q])) == NULL) {
+					continue;
 				}
+				if(json_find_string(json, "action", &action) == 0) {
+					if(strcmp(action, "send") == 0 ||
+					   strcmp(action, "control") == 0) {
+						socket_parse_data(sockfd, array[q]);
+					}
+				} else if(json_find_string(json, "origin", &origin) == 0 &&
+						json_find_string(json, "protocol", &protocol) == 0) {
+						if(strcmp(origin, "receiver") == 0 ||
+						   strcmp(origin, "sender") == 0) {
+							broadcast_queue(protocol, json, NODE);
+					}
+				}
+				json_delete(json);
 			}
 			array_free(&array, z);
 		}

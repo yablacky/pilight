@@ -153,12 +153,14 @@ int main(int argc, char **argv) {
 		}
 	}
 	options_delete(options);
+	printf("\n{\n");
 
 	if(filteropt == 1) {
 		nfilter = explode(filter, ",", &filters);
 		int jj = 0;
 		
 		protocol_init();
+		const char *info_title = filteronly ? "protocols-included" : "protocols-excluded";
 
 		for(jj = 0; jj < nfilter; jj++) {
 			strcpy(filters[jj], str_trim(filters[jj], " \t"));
@@ -183,34 +185,49 @@ int main(int argc, char **argv) {
 						break;
 #endif
 				}
-				if(p!=NULL)
+				if(p!=NULL)	// happens only on break above.
 					break;
 			}
 
 			if(!nmatch) {
-				logprintf(LOG_ERR, "Invalid protocol or no match for: '%s' (you can use wildcards * and ?).", filters[jj]);
+				if(!info_title) {
+					printf("]\n");
+				}
+				logprintf(LOG_ERR, "Invalid protocol or no match for: '%s' "
+							"(you can use wildcards * and ?).", filters[jj]);
 				goto close;
 			}
+			if(info_title) {
+				printf("'%s': [\n", info_title);
+				info_title = NULL;
+			}
+			printf("\t// Filter '%s' matches %d of %d protocols:\n", filters[jj], nmatch, nproto);
 #ifdef FILTER_WILDCARDS
-			printf("Filter '%s' matches %d of %d protocols:\n", filters[jj], nmatch, nproto);
 			int nn;
 			for(nn = 0; nn < nmatch; nn++) {
-				printf("\t'%s'\n", smatch[nn]);
+				printf("\t'%s',\n", smatch[nn]);
 			}
 			array_free(&smatch, nmatch);
 			// Handle case if filter match all protocols
 			if(nmatch == nproto) {
 				if(filteronly) {
-					logprintf(LOG_INFO, "Filter '%s' includes all %d protocols. Will print everything.", filters[jj], nproto);
+					logprintf(LOG_INFO, "Filter '%s' includes all %d protocols. "
+							"Will print everything.", filters[jj], nproto);
 					nfilter = array_free(&filters, nfilter);
 					filteronly = 0;
 					filteropt = 0;
 				} else {
-					logprintf(LOG_ERR, "Filter '%s' excludes all %d protocols. Would print nothing.", filters[jj], nproto);
+					logprintf(LOG_ERR, "Filter '%s' excludes all %d protocols. "
+							"Would print nothing.", filters[jj], nproto);
 					goto close;
 				}
 			}
+#else
+			printf("\t'%s'\n", filters[jj]);
 #endif
+		}
+		if(!info_title) {
+			printf("],\n");
 		}
 	}
 	if(filteronly && nfilter == 0) {
@@ -235,9 +252,7 @@ int main(int argc, char **argv) {
 	if(ssdp_list != NULL) {
 		ssdp_free(ssdp_list);
 	}
-	if(server != NULL) {
-		FREE(server);
-	}
+	FREE(server);
 
 	struct JsonNode *jclient = json_mkobject();
 	struct JsonNode *joptions = json_mkobject();
@@ -255,22 +270,28 @@ int main(int argc, char **argv) {
 			goto close;
 	}
 
+	printf("\n'received-messages': [\n");
+	const char *ignored_protocol = NULL;
+	unsigned int ignored_count = 0;
 	while(main_loop) {
 		if(socket_read(sockfd, &recvBuff, 0) != 0) {
-			goto close;
+			break;
 		}
-		const char *protocol = NULL;
 		char **array = NULL;
 		unsigned int n = explode(recvBuff, "\n", &array), i = 0;
 
 		for(i=0;i<n;i++) {
 			struct JsonNode *jcontent = json_decode(array[i]);
+			if(jcontent == NULL) {
+				continue;
+			}
 			const struct JsonNode *jtype = json_find_member(jcontent, "type");
 			if(jtype != NULL) {
 				json_delete_force(jtype);
 				jtype = NULL;
 			}
 			if(filteropt == 1) {
+				const char *protocol = NULL;
 				int jj;
 				json_find_string(jcontent, "protocol", &protocol);
 				for(jj = nfilter; --jj >= 0; ) {
@@ -282,20 +303,28 @@ int main(int argc, char **argv) {
 						break;
 #endif
 				}
-				if(filteronly ? jj >= 0 : jj < 0) {
-					char *content = json_stringify(jcontent, "\t");
-					printf("%s\n", content);
-					json_free(content);
+				if(filteronly ? jj < 0 : jj >= 0) {
+					json_delete(jcontent);
+					jcontent = NULL;
+					ignored_count++;
+					ignored_protocol = protocol;
 				}
-			} else {
-				char *content = json_stringify(jcontent, "\t");
-				printf("%s\n", content);
-				json_free(content);
 			}
-			json_delete(jcontent);
+
+			if(jcontent) {
+				if(ignored_count > 0) {
+					printf("// Ignored messages: %d, last ignored protocol: '%s'\n", ignored_count, ignored_protocol);
+					ignored_count = 0;
+				}
+				char *content = json_stringify(jcontent, "\t");
+				printf("%s,\n", content);
+				json_free(content);
+				json_delete(jcontent);
+			}
 		}
 		array_free(&array, n);
 	}
+	printf("\n]\n");
 
 close:
 	if(sockfd > 0) {
@@ -309,5 +338,6 @@ close:
 	log_shell_disable();
 	log_gc();
 	FREE(progname);
+	printf("\n}\n");
 	return EXIT_SUCCESS;
 }

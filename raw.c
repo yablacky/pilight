@@ -54,6 +54,7 @@
 static unsigned short main_loop = 1;
 static unsigned short linefeed = 0;
 static int min_pulses = 0;
+static int max_pulses = -1;
 static int pulses_per_line = 0;
 static int show_duty_info = 0;
 static int show_state_info = 0;
@@ -144,7 +145,7 @@ static void print_pulses(const int *pulses, unsigned int buflen, unsigned int st
 {
 	static size_t lines = 0;
 
-	if(count < min_pulses || count > buflen) {
+	if(count < min_pulses || count > buflen || (max_pulses > 0 && count > max_pulses)) {
 		return;
 	}
 	while(start >= buflen) {
@@ -227,7 +228,7 @@ void *receiveOOK(void *param) {
 #endif
 
 	struct hardware_t *hw = (hardware_t *)param;
-	if(min_pulses == 0) {
+	if(min_pulses == 0 && max_pulses < 0) {
 		while(main_loop && hw->receiveOOK) {
 			duration = hw->receiveOOK();
 			if(duration > 0) {
@@ -339,7 +340,7 @@ void *receivePulseTrain(void *param) {
 			main_gc();
 			break;
 		}
-		if(min_pulses > 0) {
+		if(min_pulses > 0 || max_pulses > 0) {
 			print_pulses(r.pulses, r.length, 0, r.length, hw->id);
 		} else {
 			for(i=0;i<r.length;i++) {
@@ -393,6 +394,7 @@ int main(int argc, char **argv) {
 	options_add(&options, 'C', "config", OPTION_HAS_VALUE, 0, JSON_NULL, NULL, NULL);
 	options_add(&options, 'L', "linefeed", OPTION_NO_VALUE, 0, JSON_NULL, NULL, NULL);
 	options_add(&options, 'm', "minpulses", OPTION_HAS_VALUE, 0, JSON_NULL, NULL, NULL);
+	options_add(&options, 'M', "maxpulses", OPTION_HAS_VALUE, 0, JSON_NULL, NULL, NULL);
 	options_add(&options, 'p', "pulsesperpline", OPTION_HAS_VALUE, 0, JSON_NULL, NULL, NULL);
 	options_add(&options, 'd', "pulseduty", OPTION_NO_VALUE, 0, JSON_NULL, NULL, NULL);
 	options_add(&options, 's', "pulsestate", OPTION_NO_VALUE, 0, JSON_NULL, NULL, NULL);
@@ -415,11 +417,12 @@ int main(int argc, char **argv) {
 				printf("\t -V --version\t\tdisplay version\n");
 				printf("\t -L --linefeed\t\tstructure raw printout\n");
 				printf("\t -m --minpulses count\t  Print nothing if not at least count pulses. Implies --linefeed.\n");
+				printf("\t -M --maxpulses count\t  Print nothing if more than count pulses. Implies --linefeed.\n");
 				printf("\t -p --pulsesperline count Pulses to print per line (10 by default). Implies --linefeed.\n");
 				printf("\t -d --pulseduty           Print pulse duty (ratio information) per line.\n");
 				printf("\t -s --pulsestate          Print pulse status(High or Low).\n");
 				printf("\t -Z --prio n\t\tThread priority (%d .. %d) default=%d. -1=do not set prio.\n", lo_prio, hi_prio, recv_prio);
-				printf("\t -C --config\t\tconfig file\n");
+				printf("\t -C --config file\t\tUse that config file\n");
 				goto close;
 			break;
 			case 'Z':
@@ -447,6 +450,13 @@ int main(int argc, char **argv) {
 					goto close;
 				}
 				break;
+			case 'M':
+				max_pulses = atoi(args);
+				if(max_pulses < 1) {
+					printf("%s: --maxpulses must be 1 or more.\n", progname);
+					goto close;
+				}
+				break;
 			case 'p':
 				pulses_per_line = atoi(args);
 				if(pulses_per_line < 1) {
@@ -468,7 +478,12 @@ int main(int argc, char **argv) {
 	}
 	options_delete(options);
 
-	if(pulses_per_line > 0 || min_pulses > 0) {
+	if(max_pulses >0 && max_pulses < min_pulses) {
+		printf("%s: --max_pulses %d is less than --minpulses %d\n", progname, max_pulses, min_pulses);
+		goto close;
+	}
+
+	if(pulses_per_line > 0 || min_pulses > 0 || max_pulses > 0) {
 		linefeed = 1;
 	}
 	if(linefeed == 1) {
@@ -476,7 +491,7 @@ int main(int argc, char **argv) {
 			if(min_pulses < 1) {
 				min_pulses = 1;
 			}
-		} else if(min_pulses > 0) {
+		} else if(min_pulses > 0 || max_pulses > 0) {
 			pulses_per_line = 10;
 		}
 	}
@@ -549,7 +564,7 @@ int main(int argc, char **argv) {
 			ring_pulses_rd++;
 			if(++start >= countof(ring_pulses))
 				start -= countof(ring_pulses);
-			if(idle > 2 * 5 && len > min_pulses) {
+			if(idle > 2 * 5 && len > min_pulses && (max_pulses < 0 || len <= max_pulses)) {
 				char buf[128];
 				printf("----------------------------------------------------------"
 					" [%s]\n",get_timestamp(buf, sizeof(buf)));

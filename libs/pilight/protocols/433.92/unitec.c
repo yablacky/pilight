@@ -32,6 +32,7 @@
 
 #define MIN_PULSE_LENGTH	(250)
 #define MAX_PULSE_LENGTH	(820-MIN_PULSE_LENGTH)
+#define AVG_PULSE_LENGTH	((MAX_PULSE_LENGTH + MIN_PULSE_LENGTH) / 2)
 
 #define MIN_PULSE_DIV		(180*PULSE_DIV)
 #define OUR_PULSE_DIV		(190*PULSE_DIV)
@@ -42,7 +43,8 @@
 static int validate(void) {
 	if(unitec_switch->rawlen == RAW_LENGTH) {
 		if(unitec_switch->raw[RAW_LENGTH-1] >= MIN_PULSE_DIV &&
-		   unitec_switch->raw[RAW_LENGTH-1] <= MAX_PULSE_DIV) {
+		   unitec_switch->raw[RAW_LENGTH-1] <= MAX_PULSE_DIV &&
+		   unitec_switch->raw[RAW_LENGTH-2] < AVG_PULSE_LENGTH) {
 			return 0;
 		}
 	}
@@ -54,26 +56,32 @@ static void createMessage(const char *id, int unit, int state) {
 	unitec_switch->message = json_mkobject();
 	json_append_member(unitec_switch->message, "id", json_mkstring(id));
 	json_append_member(unitec_switch->message, "unit", json_mknumber(unit, 0));
-	if(state)
-		json_append_member(unitec_switch->message, "state", json_mkstring("on"));
-	else
-		json_append_member(unitec_switch->message, "state", json_mkstring("off"));
+	json_append_member(unitec_switch->message, "state", json_mkstring(state ? "on" : "off"));
 }
 
 static void parseCode(void) {
-	int binary[RAW_LENGTH/2], x;
+	int frame[RAW_LENGTH/2], x = 0;
 
 	if(unitec_switch->rawlen != RAW_LENGTH)
 	    return;
 
-	for(x=0; x < countof(binary); x++) {
+	/*
+	 * I reverse-engineered it for transmitter 48113, Model EIM-827 and
+	 * corresponding switch.
+	 * It seems that other unitec transmitter/switch share the same
+	 * protocol. See here:
+	 * https://sites.google.com/site/arduinohomeautomation/home/unitec_eim826
+	 * (there 0 and 1 is vice versa, frame bit positions are counted reverse).
+	 */
+
+	for(x=0; x < countof(frame); x++) {
 		// High "1" if first > second, Low "0" else
-		binary[x] = unitec_switch->raw[x*2] > unitec_switch->raw[x*2+1];
+		frame[x] = unitec_switch->raw[x*2] > unitec_switch->raw[x*2+1];
 	}
 
-        int idn = binToDec(binary, 0, 19);
-	int unit = binToDec(binary, 20 + 0, 20 + 2) ^ 7;
-	int state = binary[20 + 3];
+        int idn = binToDec(frame, 0, 19);
+	int unit = binToDec(frame, 20 + 0, 20 + 2) ^ 7;
+	int state = frame[20 + 3];
 
 	unit = unit == 4 ? 0 : (unit + 1);
 
@@ -123,6 +131,7 @@ static void createUnit(int unit) {
 }
 
 static void createState(int state) {
+	// pos = 23, len = 1
 	(state == 0 ? createLow : createHigh)(23, 1);
 }
 
@@ -155,7 +164,7 @@ static int createCode(const struct JsonNode *code) {
 	if(json_find_number(code, "unit", &itmp) == 0) {
 		unit = (int)itmp;
 	} else {
-		logprintf(LOG_ERR, "unitec_switch: missing --unit argument ()");
+		logprintf(LOG_ERR, "unitec_switch: missing --unit argument (1..4 or 0 for all)");
 		return EXIT_FAILURE;
 	}
 
@@ -167,6 +176,10 @@ static int createCode(const struct JsonNode *code) {
 	int idn = strtol(id+1, &end, 16);
 	if(!end || end==id+1 || *end) {
 		logprintf(LOG_ERR, "unitec_switch: invalid char in id: %s ", end ? end : "?");
+		return EXIT_FAILURE;
+	}
+	if (end -(id+1) > 5) {
+		logprintf(LOG_ERR, "unitec_switch: too long id. Max 5 digits allowed.");
 		return EXIT_FAILURE;
 	}
 
@@ -228,9 +241,5 @@ void compatibility(struct module_t *module) {
 	module->version = "0.9";
 	module->reqversion = "6.0";
 	module->reqcommit = "84";
-}
-
-static void init(void) {
-	unitecSwitchInit();
 }
 #endif

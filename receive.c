@@ -157,12 +157,12 @@ int main(int argc, char **argv) {
 
 	if(filteropt == 1) {
 		nfilter = explode(filter, ",", &filters);
-		int jj = 0;
-		
+		unsigned int jj = 0, ori_nfilter = nfilter; // artificial filters may be added...
+
 		protocol_init();
 		const char *info_title = filteronly ? "protocols-included" : "protocols-excluded";
 
-		for(jj = 0; jj < nfilter; jj++) {
+		for(jj = 0; jj < ori_nfilter; jj++) {
 			strcpy(filters[jj], str_trim(filters[jj], " \t"));
 
 			size_t nmatch = 0, nproto = 0;
@@ -173,20 +173,34 @@ int main(int argc, char **argv) {
 			for(pnode = protocols; pnode; pnode = pnode->next) {
 				if(!pnode->listener)
 					continue;
-				const char *p = NULL;
-				int ii = 0;
-				while((p = protocol_device_enum(pnode->listener, ii++)) != NULL) {
-					nproto++;
+				const char *pname = pnode->listener->id;
+				nproto++;
 #ifdef FILTER_WILDCARDS
-					if(fnmatch(filters[jj], p, 0) == 0)
-						nmatch = array_push(&smatch, nmatch, p, -1);
+				if(fnmatch(filters[jj], pname, 0) == 0 && (nmatch = array_push(&smatch, nmatch, pname, -1)))
+					pname = NULL;
 #else
-					if(strcmp(filters[jj], p) == 0 && (++nmatch))
-						break;
-#endif
-				}
-				if(p!=NULL)	// happens only on break above.
+				if(strcmp(filters[jj], pname) == 0 && (++nmatch))
 					break;
+#endif
+				const char *dname = NULL;
+				int ii = 0;
+				while((dname = protocol_device_enum(pnode->listener, ii++)) != NULL) {
+					if(strcmp(dname, pnode->listener->id) == 0)
+					    continue;	// already checked above.
+					nproto++;
+					if(
+#ifdef FILTER_WILDCARDS
+					    fnmatch(filters[jj], dname, 0) == 0 && (nmatch = array_push(&smatch, nmatch, dname, -1))
+#else
+					    strcmp(filters[jj], dname) == 0 && (++nmatch)
+#endif
+					    // Filter matches a device name but since protocol names are checked later,
+					    // add the protocol name as an artificial filter if not already done.
+					    && pname != NULL) {
+						nfilter = array_push(&filters, nfilter, pname, -1);
+						pname = NULL;
+					}
+				}
 			}
 
 			if(!nmatch) {
@@ -201,8 +215,8 @@ int main(int argc, char **argv) {
 				printf("'%s': [\n", info_title);
 				info_title = NULL;
 			}
-			printf("\t// Filter '%s' matches %d of %d protocols:\n", filters[jj], nmatch, nproto);
 #ifdef FILTER_WILDCARDS
+			printf("\t// Filter '%s' matches %d of %d protocols:\n", filters[jj], nmatch, nproto);
 			int nn;
 			for(nn = 0; nn < nmatch; nn++) {
 				printf("\t'%s',\n", smatch[nn]);

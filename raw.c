@@ -288,6 +288,7 @@ void *receiveOOK(void *param) {
 	if(++pp >= ring_end)
 		pp -= ring_len;
 	ring_pulses_wr += 2;
+	uint silent_seconds = 0;
 	while(main_loop && hw->receiveOOK) {
 		duration = hw->receiveOOK();
 		if(duration > 0) {
@@ -302,27 +303,34 @@ void *receiveOOK(void *param) {
 				pp -= ring_len;
 			pulse_count++;
 			ring_pulses_wr++;
+			silent_seconds = 0;
+		} else {
+			silent_seconds++;
+		}
 
-			int overflow = 0;
-			if(duration > 5100 || pulse_count >= MAXPULSESTREAMLENGTH ||
-					(overflow = ring_pulses_wr + 3 - ring_pulses_rd >= ring_len)) {
-				*pp = 0;	// length of the NEXT chunk must be set 0 before...
-				*p1 = pulse_count;	// setting length of PREV chunk non-0.
+		int overflow = 0;
+		if(pulse_count > 0 &&
+		    (  duration > 5100
+		    || pulse_count >= MAXPULSESTREAMLENGTH
+		    || (overflow = ring_pulses_wr + 3 - ring_pulses_rd >= ring_len)
+		    || silent_seconds >= 2)) {
+			*pp = 0;	// length of the NEXT chunk must be set 0 before...
+			*p1 = pulse_count;	// setting length of PREV chunk non-0.
 
-				if (overflow) {
-					fprintf(stderr, "\nring buffer overflow. Ignoring 5 seconds.\n");
-					sleep(5);
-				}
-
-				p1 = pp;
-				if(++pp >= ring_end)
-					pp -= ring_len;
-				*pp = (int) hw->id;
-				if(++pp >= ring_end)
-					pp -= ring_len;
-				pulse_count = 0;
-				ring_pulses_wr += 2;
+			if (overflow) {
+				fprintf(stderr, "\nring buffer overflow. Ignoring 5 seconds.\n");
+				sleep(5);
 			}
+
+			p1 = pp;
+			if(++pp >= ring_end)
+				pp -= ring_len;
+			*pp = (int) hw->id;
+			if(++pp >= ring_end)
+				pp -= ring_len;
+			pulse_count = 0;
+			ring_pulses_wr += 2;
+			silent_seconds = 0;
 		}
 	}
 

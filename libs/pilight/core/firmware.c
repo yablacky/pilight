@@ -1281,13 +1281,19 @@ firmware_t *firmware_from_hw(firmware_t *result, double version, double lpf, dou
 		"filter-V4",
 		"unfiltered",
 	};
-	if (method < countof(filter)) {
+	if(method < countof(filter)) {
 		fw.method = filter[method];
 	} else {
 		static char unknown_method[64];	// not re-entrant/theadsafe. but wont allocate.
 		sprintf(unknown_method, "unknown %d", method);
 		fw.method = unknown_method;
 	}
+
+	int ihpf = (int) (hpf / 10);
+	if((ihpf & 0x7ffc) == 0x7ffc) {
+		fw.receiver_select = 0x7fff - ihpf;
+	}
+
 	if(result != NULL)
 		*result = fw;
 	return result;
@@ -1300,17 +1306,22 @@ JsonNode *firmware_to_json(const firmware_t *fw, JsonNode *target)
 	json_append_member(target, "lpf", json_mknumber(fw->lpf, 0));
 	json_append_member(target, "hpf", json_mknumber(fw->hpf, 0));
 	json_append_member(target, "method", json_mkstring(fw->method ? fw->method : ""));
+	json_append_member(target, "receiver-select", json_mknumber(fw->receiver_select, 0));
 	return target;
 }
 firmware_t *firmware_from_json(firmware_t *fw, const JsonNode *source)
 {
 	firmware_t zero = { 0 };
+	double nn;
 	*fw = zero;
 	json_find_number(source, "version", &fw->version);
 	json_find_number(source, "lpf", &fw->lpf);
 	json_find_number(source, "hpf", &fw->hpf);
 	json_find_string(source, "method", &fw->method);
 	json_find_number(source, "raw-version", &fw->raw_version);
+	nn = fw->receiver_select;
+	json_find_number(source, "receiver-select", &nn);
+	fw->receiver_select = nn;
 	return fw;
 }
 void firmware_free_json(firmware_t *fw)
@@ -1326,4 +1337,5 @@ void firmware_to_registry(const firmware_t *fw)
 	registry_set_number("pilight.firmware.hpf", fw->hpf, 0);
 	registry_set_string("pilight.firmware.method", fw->method ? fw->method : "");
 	registry_set_number("pilight.firmware.raw_version", fw->raw_version, 0);
+	registry_set_number("pilight.firmware.receiver_select", fw->receiver_select, 0);
 }

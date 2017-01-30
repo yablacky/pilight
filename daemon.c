@@ -1574,7 +1574,6 @@ static void *clientize(void *param) {
 	struct JsonNode *json = NULL;
 	struct JsonNode *joptions = NULL;
 	const struct JsonNode *jchilds = NULL;
-	struct JsonNode *tmp = NULL;
 	char *recvBuff = NULL, *output = NULL;
 	const char *message = NULL, *action = NULL;
 	const char *origin = NULL, *protocol = NULL;
@@ -1660,7 +1659,7 @@ static void *clientize(void *param) {
 							registry_gc();
 
 							json_foreach(jchilds, jconfig) {
-								if(strcmp(tmp->key, "devices") != 0) {
+								if(strcmp(jchilds->key, "devices") != 0) {
 									jchilds = json_delete_force(jchilds);
 								}
 							}

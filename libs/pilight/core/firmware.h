@@ -25,6 +25,7 @@ typedef struct firmware_t {
 	double hpf;		// maximum pulse length [us] that passes the filter.
 	const char *method;	// filter method (since version 4)
 	double raw_version;	// version number as received from firmware.
+	int receiver_select;	// which receiver the firmware ís watching.
 } firmware_t;
 firmware_t firmware;
 

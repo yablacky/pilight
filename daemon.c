@@ -293,15 +293,15 @@ static void *broadcast(void *param) {
 				double tmp = 0;
 				json_find_number(bcqueue->jmessage, "type", &tmp);
 				char *conf = json_stringify(bcqueue->jmessage, NULL);
+
 				struct clients_t *tmp_clients = clients_head;
-				while(tmp_clients) {
+				for(; tmp_clients; tmp_clients = tmp_clients->next) {
 					if(((int)tmp < 0 && tmp_clients->core == 1) ||
 					   ((int)tmp >= 0 && tmp_clients->config == 1) ||
 						 ((int)tmp == PROCESS && tmp_clients->stats == 1)) {
 						socket_write(tmp_clients->id, conf);
 						broadcasted = 1;
 					}
-					tmp_clients = tmp_clients->next;
 				}
 				if(pilight.runmode == ADHOC && sockfd > 0) {
 					struct JsonNode *jupdate = json_decode(conf);
@@ -320,42 +320,35 @@ static void *broadcast(void *param) {
 				/* Update the config */
 				if(devices_update(bcqueue->protoname, bcqueue->jmessage, bcqueue->origin, &jret) == 0) {
 					char *tmp = json_stringify(jret, NULL);
-					unsigned short match1 = 0, match2 = 0;
-					struct clients_t *tmp_clients = clients_head;
 
+					struct clients_t *tmp_clients = clients_head;
 					for(;tmp_clients; tmp_clients = tmp_clients->next) {
 						if(tmp_clients->config != 1) {
 							continue;
 						}
+						unsigned short match1 = 0;
 						struct JsonNode *jtmp = json_decode(tmp);
 						const struct JsonNode *jdevices = json_find_member(jtmp, "devices");
-						if(jdevices != NULL) {
-							match1 = 0;
-							struct gui_values_t *gui_values = NULL;
-							const struct JsonNode *jchilds = NULL;
-							json_foreach(jchilds, jdevices) {
-								match2 = 0;
-								if(jchilds->tag == JSON_STRING) {
-									if((gui_values = gui_media(jchilds->string_)) != NULL) {
-										while(gui_values) {
-											if(gui_values->type == JSON_STRING) {
-												if(strcmp(gui_values->string_, tmp_clients->media) == 0 ||
-													 strcmp(gui_values->string_, "all") == 0 ||
-													 strcmp(tmp_clients->media, "all") == 0) {
-														match1 = 1;
-														match2 = 1;
-												}
-											}
-											gui_values = gui_values->next;
-										}
-									} else {
+						const struct JsonNode *jchilds = NULL;
+						json_foreach(jchilds, jdevices) {
+							unsigned short match2 = 0;
+							if(jchilds->tag == JSON_STRING) {
+								struct gui_values_t *gui_values = NULL;
+								if(!(gui_values = gui_media(jchilds->string_)) ||
+								    strcmp(tmp_clients->media, "all") == 0) {
+									match1 = 1;
+									match2 = 1;
+								} else for(; gui_values; gui_values = gui_values->next) {
+									if(gui_values->type == JSON_STRING && (
+									    strcmp(gui_values->string_, tmp_clients->media) == 0 ||
+									    strcmp(gui_values->string_, "all") == 0)) {
 										match1 = 1;
 										match2 = 1;
 									}
 								}
-								if(match2 == 0) {
-									jchilds = json_delete_force(jchilds);
-								}
+							}
+							if(match2 == 0) {
+								jchilds = json_delete_force(jchilds);
 							}
 						}
 						if(match1 == 1) {
@@ -389,7 +382,7 @@ static void *broadcast(void *param) {
 					if((code = json_find_member(bcqueue->jmessage, "message")) != NULL) {
 						firmware_t fw;
 						firmware_from_json(&fw, code);
-						if(fw.version > 0 && fw.lpf > 0 && fw.hpf > 0) {
+						if(fw.version > 0) {
 							firmware_to_registry(&fw);
 
 							struct JsonNode *jmessage = json_mkobject();
@@ -400,7 +393,7 @@ static void *broadcast(void *param) {
 							json_delete(jmessage);
 							jmessage = NULL;
 						}
-						firmware_free_json(&fw);
+						firmware_free(&fw);
 					}
 				}
 				broadcasted = 0;
@@ -413,14 +406,13 @@ static void *broadcast(void *param) {
 
 				/* Write the message to all receivers */
 				struct clients_t *tmp_clients = clients_head;
-				while(tmp_clients) {
+				for(; tmp_clients; tmp_clients = tmp_clients->next) {
 					if(tmp_clients->receiver == 1 && tmp_clients->forward == 0) {
-							if(strcmp(out, "{}") != 0 && nrchilds > 1) {
-								socket_write(tmp_clients->id, out);
-								broadcasted = 1;
-							}
+						if(strcmp(out, "{}") != 0 && nrchilds > 1) {
+							socket_write(tmp_clients->id, out);
+							broadcasted = 1;
+						}
 					}
-					tmp_clients = tmp_clients->next;
 				}
 
 				if(pilight.runmode == ADHOC && sockfd > 0) {
@@ -515,43 +507,39 @@ static void add_timestamp(JsonNode *object, const char *timestamp_key, const tim
 static void receiver_create_message(protocol_t *protocol, const char *msg_name, size_t msg_id) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
-	if(protocol->message != NULL) {
-		char *valid = json_stringify(protocol->message, NULL);
-		json_delete(protocol->message);
-		if(valid != NULL && json_validate(valid, NULL) == true) {
-			struct JsonNode *jmessage = json_mkobject();
-
-			json_append_member(jmessage, "message", json_decode(valid));
-			json_append_member(jmessage, "origin", json_mkstring("receiver"));
-
-			char origin_msg_id[strlen(msg_name) + 64];
-			sprintf(origin_msg_id, "%s#%u", msg_name, msg_id);
-			json_append_member(jmessage, "origin-msg-id", json_mkstring(origin_msg_id));
-
-			json_append_member(jmessage, "protocol", json_mkstring(protocol->id));
-			if(strlen(pilight_uuid) > 0) {
-				json_append_member(jmessage, "uuid", json_mkstring(pilight_uuid));
-			}
-			if(protocol->repeats > -1) {
-				json_append_member(jmessage, "repeats", json_mknumber(protocol->repeats, 0));
-			}
-
-			add_timestamp(jmessage, "received-timestamp", NULL);
-			static size_t total_message_count = 0;
-			json_append_member(jmessage, "received-total",
-				json_mknumber(__sync_add_and_fetch(&total_message_count, 1), 0));
-
-			char *output = json_stringify(jmessage, NULL);
-			struct JsonNode *json = json_decode(output);
-			broadcast_queue(protocol->id, json, RECEIVER);
-			json_free(output);
-			json_delete(json);
-			json = NULL;
-			json_delete(jmessage);
-		}
-		json_free(valid);
-	}
+	if(protocol->message == NULL)
+		return;
+	char *valid = json_stringify(protocol->message, NULL);
+	json_delete(protocol->message);
 	protocol->message = NULL;
+	if(valid == NULL)
+		return;
+
+	struct JsonNode *jmessage = json_mkobject();
+
+	json_append_member(jmessage, "message", json_decode(valid));
+	json_append_member(jmessage, "origin", json_mkstring("receiver"));
+
+	char origin_msg_id[strlen(msg_name) + 64];
+	sprintf(origin_msg_id, "%s#%u", msg_name, msg_id);
+	json_append_member(jmessage, "origin-msg-id", json_mkstring(origin_msg_id));
+
+	json_append_member(jmessage, "protocol", json_mkstring(protocol->id));
+	if(strlen(pilight_uuid) > 0) {
+		json_append_member(jmessage, "uuid", json_mkstring(pilight_uuid));
+	}
+	if(protocol->repeats > -1) {
+		json_append_member(jmessage, "repeats", json_mknumber(protocol->repeats, 0));
+	}
+
+	add_timestamp(jmessage, "received-timestamp", NULL);
+	static size_t total_message_count = 0;
+	json_append_member(jmessage, "received-total",
+		json_mknumber(__sync_add_and_fetch(&total_message_count, 1), 0));
+
+	broadcast_queue(protocol->id, jmessage, RECEIVER);
+	json_delete(jmessage);
+	json_free(valid);
 }
 
 static void receive_parse_api(struct JsonNode *code, int hwtype) {
@@ -561,14 +549,13 @@ static void receive_parse_api(struct JsonNode *code, int hwtype) {
 	static size_t code_count = 0;
 	size_t code_id = ++code_count;
 
-	while(pnode != NULL) {
+	for(; pnode != NULL; pnode = pnode->next) {
 		protocol = pnode->listener;
 
 		if(protocol->hwtype == hwtype && protocol->parseCommand != NULL) {
 			protocol->parseCommand(code);
 			receiver_create_message(protocol, "code", code_id);
 		}
-		pnode = pnode->next;
 	}
 }
 
@@ -684,13 +671,16 @@ static void *send_code(void *param) {
 		struct JsonNode *message = NULL;
 
 		if(sendqueue->message != NULL && strcmp(sendqueue->message, "{}") != 0) {
-			if(json_validate(sendqueue->message, NULL) == true) {
+			struct JsonNode *jmessage = json_decode(sendqueue->message);
+			if(jmessage == NULL) {
+				logprintf(LOG_ERR, "failed to send message '%s': not json", sendqueue->message);
+			} else {
 				if(message == NULL) {
 					message = json_mkobject();
 				}
 				json_append_member(message, "origin", json_mkstring("sender"));
 				json_append_member(message, "protocol", json_mkstring(protocol->id));
-				json_append_member(message, "message", json_decode(sendqueue->message));
+				json_append_member(message, "message", jmessage);
 				if(strlen(sendqueue->uuid) > 0) {
 					json_append_member(message, "uuid", json_mkstring(sendqueue->uuid));
 				}
@@ -701,11 +691,14 @@ static void *send_code(void *param) {
 			}
 		}
 		if(sendqueue->settings != NULL && strcmp(sendqueue->settings, "{}") != 0) {
-			if(json_validate(sendqueue->settings, NULL) == true) {
+			struct JsonNode *jsettings = json_decode(sendqueue->settings);
+			if(jsettings == NULL) {
+				logprintf(LOG_ERR, "failed to send settings '%s': not json", sendqueue->settings);
+			} else {
 				if(message == NULL) {
 					message = json_mkobject();
 				}
-				json_append_member(message, "settings", json_decode(sendqueue->settings));
+				json_append_member(message, "settings", jsettings);
 			}
 		}
 
@@ -835,11 +828,10 @@ static int send_queue_nolock(struct JsonNode *json, enum origin_t origin) {
 	}
 
 	tmp_clients = clients_head;
-	while(tmp_clients) {
+	for(;tmp_clients; tmp_clients = tmp_clients->next) {
 		if(tmp_clients->forward == 1) {
 			socket_write(tmp_clients->id, buffer);
 		}
-		tmp_clients = tmp_clients->next;
 	}
 	json_free(buffer);
 
@@ -866,13 +858,12 @@ static int send_queue_nolock(struct JsonNode *json, enum origin_t origin) {
 		if(jprotocol->tag == JSON_STRING) {
 			struct protocols_t *pnode = protocols;
 			/* Retrieve the used protocol */
-			while(pnode) {
+			for(; pnode; pnode = pnode->next) {
 				/* Check if the protocol exists */
 				if(protocol_device_exists(pnode->listener, jprotocol->string_) == 0) {
 					protocol = pnode->listener;
 					break;
 				}
-				pnode = pnode->next;
 			}
 			if(pnode != NULL) {
 				break;
@@ -900,12 +891,11 @@ static int send_queue_nolock(struct JsonNode *json, enum origin_t origin) {
 	mnode->message = NULL;
 	if(protocol->message != NULL) {
 		char *jsonstr = json_stringify(protocol->message, NULL);
-		if(json_validate(jsonstr, NULL) == true) {
+		if(jsonstr == NULL) {
+			logprintf(LOG_ERR, "failed to generate json for protocol %s command", protocol->id);
+		} else {
 			mnode->message = jsonstr;
 			jsonstr = NULL;
-		} else {
-			logprintf(LOG_ERR, "failed to generate json code for protocol %s command", protocol->id);
-			json_free(jsonstr);
 		}
 		json_delete(protocol->message);
 		protocol->message = NULL;
@@ -921,7 +911,7 @@ static int send_queue_nolock(struct JsonNode *json, enum origin_t origin) {
 	const char *stmp = NULL;
 	struct JsonNode *jsettings = json_mkobject();
 	const struct JsonNode *jtmp = NULL;
-	while(tmp_options) {
+	for(; tmp_options; tmp_options = tmp_options->next) {
 		if(tmp_options->conftype == DEVICES_SETTING) {
 			if(tmp_options->vartype == JSON_NUMBER &&
 			  (jtmp = json_find_member(jcode, tmp_options->name)) != NULL &&
@@ -931,7 +921,6 @@ static int send_queue_nolock(struct JsonNode *json, enum origin_t origin) {
 				json_append_member(jsettings, tmp_options->name, json_mkstring(stmp));
 			}
 		}
-		tmp_options = tmp_options->next;
 	}
 	mnode->settings = json_stringify(jsettings, NULL);
 	json_delete(jsettings);
@@ -1156,13 +1145,12 @@ static void socket_parse_data(int i, char *buffer) {
 			json = json_decode(buffer);
 			if((json_find_string(json, "action", &action)) == 0) {
 				tmp_clients = clients_head;
-				while(tmp_clients) {
+				for(; tmp_clients; tmp_clients = tmp_clients->next) {
 					if(tmp_clients->id == sd) {
 						exists = 1;
 						client = tmp_clients;
 						break;
 					}
-					tmp_clients = tmp_clients->next;
 				}
 				if(strcmp(action, "identify") == 0) {
 					/* Check if client doesn't already exist */
@@ -1181,10 +1169,12 @@ static void socket_parse_data(int i, char *buffer) {
 						memset(client->uuid, '\0', sizeof(client->uuid));
 					}
 					if(json_find_string(json, "media", &media) == 0) {
-						if(strcmp(media, "all") == 0 || strcmp(media, "mobile") == 0 ||
-						   strcmp(media, "desktop") == 0 || strcmp(media, "web") == 0) {
-								strcpy(client->media, media);
-							 }
+						if(strcmp(media, "all") == 0 ||
+						   strcmp(media, "mobile") == 0 ||
+						   strcmp(media, "desktop") == 0 ||
+						   strcmp(media, "web") == 0) {
+							strcpy(client->media, media);
+						}
 					} else {
 						strcpy(client->media, "all");
 					}
@@ -1192,48 +1182,22 @@ static void socket_parse_data(int i, char *buffer) {
 					if(json_find_string(json, "uuid", &t) == 0) {
 						strcpy(client->uuid, t);
 					}
-					if((options = json_find_member(json, "options")) != NULL) {
-						const struct JsonNode *childs = NULL;
-						json_foreach(childs, options) {
-							if(strcmp(childs->key, "core") == 0 &&
-							   childs->tag == JSON_NUMBER) {
-								if((int)childs->number_ == 1) {
-									client->core = 1;
-								} else {
-									client->core = 0;
-								}
-							} else if(strcmp(childs->key, "stats") == 0 &&
-							   childs->tag == JSON_NUMBER) {
-								if((int)childs->number_ == 1) {
-									client->stats = 1;
-								} else {
-									client->stats = 0;
-								}
-							} else if(strcmp(childs->key, "receiver") == 0 &&
-							   childs->tag == JSON_NUMBER) {
-								if((int)childs->number_ == 1) {
-									client->receiver = 1;
-								} else {
-									client->receiver = 0;
-								}
-							} else if(strcmp(childs->key, "config") == 0 &&
-							   childs->tag == JSON_NUMBER) {
-								if((int)childs->number_ == 1) {
-									client->config = 1;
-								} else {
-									client->config = 0;
-								}
-							} else if(strcmp(childs->key, "forward") == 0 &&
-							   childs->tag == JSON_NUMBER) {
-								if((int)childs->number_ == 1) {
-									client->forward = 1;
-								} else {
-									client->forward = 0;
-								}
-							} else {
-							   error = 1;
-							   break;
-							}
+					const struct JsonNode *childs = NULL;
+					options = json_find_member(json, "options");
+					json_foreach(childs, options) {
+						if(strcmp(childs->key, "core") == 0 && childs->tag == JSON_NUMBER) {
+							client->core = (int)childs->number_ == 1;
+						} else if(strcmp(childs->key, "stats") == 0 && childs->tag == JSON_NUMBER) {
+							client->stats = (int)childs->number_ == 1;
+						} else if(strcmp(childs->key, "receiver") == 0 && childs->tag == JSON_NUMBER) {
+							client->receiver = (int)childs->number_ == 1;
+						} else if(strcmp(childs->key, "config") == 0 && childs->tag == JSON_NUMBER) {
+							client->config = (int)childs->number_ == 1;
+						} else if(strcmp(childs->key, "forward") == 0 && childs->tag == JSON_NUMBER) {
+							client->forward = (int)childs->number_ == 1;
+						} else {
+							error = 1;
+							break;
 						}
 					}
 					if(exists == 0) {
@@ -1256,28 +1220,25 @@ static void socket_parse_data(int i, char *buffer) {
 					const char *device = NULL;
 					if((code = json_find_member(json, "code")) == NULL || code->tag != JSON_OBJECT) {
 						logprintf(LOG_ERR, "client did not send any codes");
-					} else {
-						/* Check if a location and device are given */
-						if(json_find_string(code, "device", &device) != 0) {
-							logprintf(LOG_ERR, "client did not send a device");
-						/* Check if the device and location exists in the config file */
-						} else if(devices_get(device, &dev) == 0) {
-							const char *state = NULL;
-							const struct JsonNode *values = NULL;
+					} else if(json_find_string(code, "device", &device) != 0) {
+						logprintf(LOG_ERR, "client did not send a device");
+					} else if(devices_get(device, &dev) == 0) {
+						/* Check if the given device and location exists in the config file */
+						const char *state = NULL;
+						const struct JsonNode *values = NULL;
 
-							json_find_string(code, "state", &state);
-							if((values = json_find_member(code, "values")) != NULL) {
-								values = json_first_child(values);
-							}
-
-							if(control_device(dev, state, values, SENDER) == 0) {
-								socket_write(sd, "{\"status\":\"success\"}");
-							} else {
-								socket_write(sd, "{\"status\":\"failed\"}");
-							}
-						} else {
-							logprintf(LOG_ERR, "the device \"%s\" does not exist", device);
+						json_find_string(code, "state", &state);
+						if((values = json_find_member(code, "values")) != NULL) {
+							values = json_first_child(values);
 						}
+
+						if(control_device(dev, state, values, SENDER) == 0) {
+							socket_write(sd, "{\"status\":\"success\"}");
+						} else {
+							socket_write(sd, "{\"status\":\"failed\"}");
+						}
+					} else {
+						logprintf(LOG_ERR, "the device \"%s\" does not exist", device);
 					}
 				} else if(strcmp(action, "registry") == 0) {
 					const struct JsonNode *value = NULL;
@@ -1288,71 +1249,63 @@ static void socket_parse_data(int i, char *buffer) {
 					int dec = 0;
 					if(json_find_string(json, "type", &type) != 0) {
 						logprintf(LOG_ERR, "client did not send a type of action");
-					} else {
-						if(strcmp(type, "set") == 0) {
-							if(json_find_string(json, "key", &key) != 0) {
-								logprintf(LOG_ERR, "client did not send a registry key");
-								socket_write(sd, "{\"status\":\"failed\"}");
-							} else if((value = json_find_member(json, "value")) == NULL) {
-								logprintf(LOG_ERR, "client did not send a registry value");
-								socket_write(sd, "{\"status\":\"failed\"}");
+					} else if(strcmp(type, "set") == 0) {
+						if(json_find_string(json, "key", &key) != 0) {
+							logprintf(LOG_ERR, "client did not send a registry key");
+							socket_write(sd, "{\"status\":\"failed\"}");
+						} else if((value = json_find_member(json, "value")) == NULL) {
+							logprintf(LOG_ERR, "client did not send a registry value");
+							socket_write(sd, "{\"status\":\"failed\"}");
+						} else if(value->tag == JSON_NUMBER) {
+							if(registry_set_number(key, value->number_, value->decimals_) == 0) {
+								socket_write(sd, "{\"status\":\"success\"}");
 							} else {
-								if(value->tag == JSON_NUMBER) {
-									if(registry_set_number(key, value->number_, value->decimals_) == 0) {
-										socket_write(sd, "{\"status\":\"success\"}");
-									} else {
-										socket_write(sd, "{\"status\":\"failed\"}");
-									}
-								} else if(value->tag == JSON_STRING) {
-									if(registry_set_string(key, value->string_) == 0) {
-										socket_write(sd, "{\"status\":\"success\"}");
-									} else {
-										socket_write(sd, "{\"status\":\"failed\"}");
-									}
-								} else {
-									logprintf(LOG_ERR, "registry value can only be a string or number");
-									socket_write(sd, "{\"status\":\"failed\"}");
-								}
-							}
-						} else if(strcmp(type, "remove") == 0) {
-							if(json_find_string(json, "key", &key) != 0) {
-								logprintf(LOG_ERR, "client did not send a registry key");
 								socket_write(sd, "{\"status\":\"failed\"}");
-							} else {
-								if(registry_remove_value(key) == 0) {
-									socket_write(sd, "{\"status\":\"success\"}");
-								} else {
-									socket_write(sd, "{\"status\":\"failed\"}");
-								}
 							}
-						} else if(strcmp(type, "get") == 0) {
-							if(json_find_string(json, "key", &key) != 0) {
-								logprintf(LOG_ERR, "client did not send a registry key");
+						} else if(value->tag == JSON_STRING) {
+							if(registry_set_string(key, value->string_) == 0) {
+								socket_write(sd, "{\"status\":\"success\"}");
+							} else {
 								socket_write(sd, "{\"status\":\"failed\"}");
-							} else {
-								if(registry_get_number(key, &nval, &dec) == 0) {
-									struct JsonNode *jsend = json_mkobject();
-									json_append_member(jsend, "message", json_mkstring("registry"));
-									json_append_member(jsend, "value", json_mknumber(nval, dec));
-									json_append_member(jsend, "key", json_mkstring(key));
-									char *output = json_stringify(jsend, NULL);
-									socket_write(sd, output);
-									json_free(output);
-									json_delete(jsend);
-								} else if(registry_get_string(key, &sval) == 0) {
-									struct JsonNode *jsend = json_mkobject();
-									json_append_member(jsend, "message", json_mkstring("registry"));
-									json_append_member(jsend, "value", json_mkstring(sval));
-									json_append_member(jsend, "key", json_mkstring(key));
-									char *output = json_stringify(jsend, NULL);
-									socket_write(sd, output);
-									json_free(output);
-									json_delete(jsend);
-								} else {
-									logprintf(LOG_ERR, "registry key '%s' doesn't exists", key);
-									socket_write(sd, "{\"status\":\"failed\"}");
-								}
 							}
+						} else {
+							logprintf(LOG_ERR, "registry value can only be a string or number");
+							socket_write(sd, "{\"status\":\"failed\"}");
+						}
+					} else if(strcmp(type, "remove") == 0) {
+						if(json_find_string(json, "key", &key) != 0) {
+							logprintf(LOG_ERR, "client did not send a registry key");
+							socket_write(sd, "{\"status\":\"failed\"}");
+						} else if(registry_remove_value(key) == 0) {
+							socket_write(sd, "{\"status\":\"success\"}");
+						} else {
+							socket_write(sd, "{\"status\":\"failed\"}");
+						}
+					} else if(strcmp(type, "get") == 0) {
+						if(json_find_string(json, "key", &key) != 0) {
+							logprintf(LOG_ERR, "client did not send a registry key");
+							socket_write(sd, "{\"status\":\"failed\"}");
+						} else if(registry_get_number(key, &nval, &dec) == 0) {
+							struct JsonNode *jsend = json_mkobject();
+							json_append_member(jsend, "message", json_mkstring("registry"));
+							json_append_member(jsend, "value", json_mknumber(nval, dec));
+							json_append_member(jsend, "key", json_mkstring(key));
+							char *output = json_stringify(jsend, NULL);
+							socket_write(sd, output);
+							json_free(output);
+							json_delete(jsend);
+						} else if(registry_get_string(key, &sval) == 0) {
+							struct JsonNode *jsend = json_mkobject();
+							json_append_member(jsend, "message", json_mkstring("registry"));
+							json_append_member(jsend, "value", json_mkstring(sval));
+							json_append_member(jsend, "key", json_mkstring(key));
+							char *output = json_stringify(jsend, NULL);
+							socket_write(sd, output);
+							json_free(output);
+							json_delete(jsend);
+						} else {
+							logprintf(LOG_ERR, "registry key '%s' doesn't exists", key);
+							socket_write(sd, "{\"status\":\"failed\"}");
 						}
 					}
 				} else if(strcmp(action, "request config") == 0) {
@@ -1388,13 +1341,12 @@ static void socket_parse_data(int i, char *buffer) {
 					if((jvalues = json_find_member(json, "values")) != NULL) {
 						exists = 0;
 						tmp_clients = clients_head;
-						while(tmp_clients) {
+						for(; tmp_clients; tmp_clients = tmp_clients->next) {
 							if(tmp_clients->id == sd) {
 								exists = 1;
 								client = tmp_clients;
 								break;
 							}
-							tmp_clients = tmp_clients->next;
 						}
 						if(exists) {
 							json_find_number(jvalues, "ram", &client->ram);
@@ -1409,13 +1361,12 @@ static void socket_parse_data(int i, char *buffer) {
 				}
 			} else if((json_find_string(json, "status", &status)) == 0) {
 				tmp_clients = clients_head;
-				while(tmp_clients) {
+				for(; tmp_clients; tmp_clients = tmp_clients->next) {
 					if(tmp_clients->id == sd) {
 						exists = 1;
 						client = tmp_clients;
 						break;
 					}
-					tmp_clients = tmp_clients->next;
 				}
 				if(strcmp(status, "success") == 0) {
 					logprintf(LOG_DEBUG, "client \"%s\" successfully executed our latest request", client->uuid);
@@ -2032,12 +1983,11 @@ static void *pilight_stats(void *param) {
 					json_append_member(procProtocol->message, "origin", json_mkstring("core"));
 					json_append_member(procProtocol->message, "type", json_mknumber(PROCESS, 0));
 					struct clients_t *tmp_clients = clients_head;
-					while(tmp_clients) {
+					for(; tmp_clients; tmp_clients = tmp_clients->next) {
 						if(tmp_clients->cpu > 0 && tmp_clients->ram > 0) {
 							logprintf(LOG_DEBUG, "- client: %s cpu: %f%%, ram: %f%%",
-										tmp_clients->uuid, tmp_clients->cpu, tmp_clients->ram);
+								tmp_clients->uuid, tmp_clients->cpu, tmp_clients->ram);
 						}
-						tmp_clients = tmp_clients->next;
 					}
 					add_timestamp(procProtocol->message, "timestamp", &cpu_ram_time);
 					pilight.broadcast(procProtocol->id, procProtocol->message, STATS);

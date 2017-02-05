@@ -2474,34 +2474,26 @@ static int start_pilight(int argc, char **argv) {
 	threads_register("broadcaster", &broadcast, (void *)NULL, 0);
 
 	struct conf_hardware_t *tmp_confhw = conf_hardware;
-	while(tmp_confhw && main_loop) {
-		if(tmp_confhw->hardware->init) {
-			if(tmp_confhw->hardware->init() == EXIT_FAILURE) {
-				if(main_loop == 1) {
-					logprintf(LOG_ERR, "could not initialize %s hardware module", tmp_confhw->hardware->id);
-					goto clear;
-				} else {
-					break;
-				}
-			}
+	for(; tmp_confhw && main_loop; tmp_confhw = tmp_confhw->next) {
+		if(!tmp_confhw->hardware->init)
+			continue;
+		if(tmp_confhw->hardware->init() == EXIT_FAILURE) {
 			if(main_loop == 1) {
-				tmp_confhw->hardware->wait = 0;
-				tmp_confhw->hardware->stop = 0;
-				if(tmp_confhw->hardware->comtype == COMOOK) {
-					threads_register(tmp_confhw->hardware->id, &receiveOOK, (void *)tmp_confhw->hardware, 0);
-				} else if(tmp_confhw->hardware->comtype == COMPLSTRAIN) {
-					threads_register(tmp_confhw->hardware->id, &receivePulseTrain, (void *)tmp_confhw->hardware, 0);
-				} else if(tmp_confhw->hardware->comtype == COMAPI) {
-					threads_register(tmp_confhw->hardware->id, tmp_confhw->hardware->receiveAPI, (void *)tmp_confhw->hardware, 0);
-				}
-			} else {
-				break;
+				logprintf(LOG_ERR, "could not initialize %s hardware module", tmp_confhw->hardware->id);
+				goto clear;
 			}
 		}
-		if(main_loop == 0) {
+		if(!main_loop)
 			break;
+		tmp_confhw->hardware->wait = 0;
+		tmp_confhw->hardware->stop = 0;
+		if(tmp_confhw->hardware->comtype == COMOOK) {
+			threads_register(tmp_confhw->hardware->id, &receiveOOK, (void *)tmp_confhw->hardware, 0);
+		} else if(tmp_confhw->hardware->comtype == COMPLSTRAIN) {
+			threads_register(tmp_confhw->hardware->id, &receivePulseTrain, (void *)tmp_confhw->hardware, 0);
+		} else if(tmp_confhw->hardware->comtype == COMAPI) {
+			threads_register(tmp_confhw->hardware->id, tmp_confhw->hardware->receiveAPI, (void *)tmp_confhw->hardware, 0);
 		}
-		tmp_confhw = tmp_confhw->next;
 	}
 	if(main_loop == 0) {
 		goto clear;

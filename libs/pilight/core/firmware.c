@@ -696,6 +696,9 @@ sig_again:
 			exitrc = FW_INV_SIG_FAIL;
 			goto main_exit;
 		}
+	} else {
+		exitrc = FW_RD_SIG_FAIL;
+		goto main_exit;
 	}
 
 	logprintf(LOG_INFO, "AVR device signature = 0x%02x 0x%02x 0x%02x", sig->buf[0], sig->buf[1], sig->buf[2]);
@@ -870,6 +873,9 @@ static int firmware_write(char *filename, struct avrpart **p) {
 			exitrc = FW_INV_SIG_FAIL;
 			goto main_exit;
 		}
+	} else {
+		exitrc = FW_RD_SIG_FAIL;
+		goto main_exit;
 	}
 
 	logprintf(LOG_INFO, "AVR device signature = 0x%02x 0x%02x 0x%02x", sig->buf[0], sig->buf[1], sig->buf[2]);
@@ -1152,68 +1158,59 @@ int firmware_getmp(char *port) {
 	}
 
 	struct avrpart *p = NULL;
-	unsigned int match = 0;
 
 	logprintf(LOG_INFO, "Indentifying microprocessor");
 	/*
 	mptype = FW_MP_ATMEL32U4;
 	firmware_atmega32u4(&p);
-	if(!match && firmware_identifymp(&p) != 0) {
-		logprintf(LOG_INFO, "Not an ATMega32u4");
-		mptype = FW_MP_ATMEL328P;
-		firmware_atmega328p(&p);	
-		match = 0;
-	} else {
+	if(firmware_identifymp(&p) == 0) {
 		return mptype;
-	}*/
+	}
+	logprintf(LOG_INFO, "Not an ATMega32u4");
+	*/
+
 	mptype = FW_MP_ATMEL328P;
 	baudrate = 115200;
 	firmware_atmega328p(&p);
 	logprintf(LOG_INFO, "Checking for an ATMega328P @%d", baudrate);
-	if(!match && firmware_identifymp(&p) != 0) {
-		logprintf(LOG_INFO, "Not an ATMega328P");
-		mptype = FW_MP_ATMEL328P;
-		match = 0;
-		firmware_atmega328p(&p);
-	} else {
+	if(firmware_identifymp(&p) == 0) {
 		return mptype;
 	}
+	logprintf(LOG_INFO, "Not an ATMega328P");
+
+	mptype = FW_MP_ATMEL328P;
 	baudrate = 57600;
+	firmware_atmega328p(&p);
 	logprintf(LOG_INFO, "Checking for an ATMega328P @%d", baudrate);
-	if(!match && firmware_identifymp(&p) != 0) {
-		logprintf(LOG_INFO, "Not an ATMega328P");
-		mptype = FW_MP_ATTINY25;
-		match = 0;
-		firmware_attiny25(&p);
-	} else {
+	if(firmware_identifymp(&p) == 0) {
 		return mptype;
 	}	
+	logprintf(LOG_INFO, "Not an ATMega328P");
+
+	mptype = FW_MP_ATTINY25;
+	firmware_attiny25(&p);
 	logprintf(LOG_INFO, "Checking for an ATTiny25 @%d", baudrate);
-	if(!match && firmware_identifymp(&p) != 0) {
-		logprintf(LOG_INFO, "Not an ATTiny45");
-		mptype = FW_MP_ATTINY45;
-		match = 0;
-		firmware_attiny45(&p);
-	} else {
+	if(firmware_identifymp(&p) == 0) {
 		return mptype;
 	}
+	logprintf(LOG_INFO, "Not an ATTiny25");
+
+	mptype = FW_MP_ATTINY45;
+	firmware_attiny45(&p);
 	logprintf(LOG_INFO, "Checking for an ATTiny45 @%d", baudrate);
-	if(!match && firmware_identifymp(&p) != 0) {
-		logprintf(LOG_INFO, "Not an ATTiny85");
-		mptype = FW_MP_ATTINY85;
-		match = 0;
-		firmware_attiny85(&p);
-	} else {
+	if(firmware_identifymp(&p) == 0) {
 		return mptype;
 	}
+	logprintf(LOG_INFO, "Not an ATTiny45");
+
+	mptype = FW_MP_ATTINY85;
+	firmware_attiny85(&p);
 	logprintf(LOG_INFO, "Checking for an ATTiny85 @%d", baudrate);
-	if(!match && firmware_identifymp(&p) != 0) {
-		mptype = FW_MP_UNKNOWN;
-		logprintf(LOG_ERR, "AVR unknown");
-		return -1;
-	} else {
+	if(firmware_identifymp(&p) == 0) {
 		return mptype;
 	}
+	mptype = FW_MP_UNKNOWN;
+	logprintf(LOG_ERR, "Not an ATTiny85. Give up.");
 	return -1;
 }
 
@@ -1260,16 +1257,16 @@ int firmware_update(char *fwfile, char *port) {
 	}
 }
 
-firmware_t *firmware_from_hw(firmware_t *result, double version, double lpf, double hpf)
+firmware_t *firmware_from_hw(firmware_t *fw, double version, double lpf, double hpf)
 {
-	firmware_t fw = { 0 };
-	fw.raw_version = version;
-	fw.lpf = lpf;
-	fw.hpf = hpf;
+	firmware_init(fw);
+	fw->raw_version = version;
+	fw->lpf = lpf;
+	fw->hpf = hpf;
 
 	unsigned int v = (int) version;
 	unsigned int method = v / 100;
-	fw.version = v = v % 100;
+	fw->version = v = v % 100;
 	if(v < 4 && method == 0) {
 		method = 3;
 	}
@@ -1282,21 +1279,19 @@ firmware_t *firmware_from_hw(firmware_t *result, double version, double lpf, dou
 		"unfiltered",
 	};
 	if(method < countof(filter)) {
-		fw.method = filter[method];
+		fw->method = STRDUP_OR_EXIT(filter[method]);
 	} else {
-		static char unknown_method[64];	// not re-entrant/theadsafe. but wont allocate.
+		char unknown_method[64];	// not re-entrant/theadsafe. but wont allocate.
 		sprintf(unknown_method, "unknown %d", method);
-		fw.method = unknown_method;
+		fw->method = STRDUP_OR_EXIT(unknown_method);
 	}
 
 	int ihpf = (int) (hpf / 10);
 	if((ihpf & 0x7ffc) == 0x7ffc) {
-		fw.receiver_select = 0x7fff - ihpf;
+		fw->receiver_select = 0x7fff - ihpf;
 	}
 
-	if(result != NULL)
-		*result = fw;
-	return result;
+	return fw;
 }
 
 JsonNode *firmware_to_json(const firmware_t *fw, JsonNode *target)
@@ -1311,9 +1306,8 @@ JsonNode *firmware_to_json(const firmware_t *fw, JsonNode *target)
 }
 firmware_t *firmware_from_json(firmware_t *fw, const JsonNode *source)
 {
-	firmware_t zero = { 0 };
 	double nn;
-	*fw = zero;
+	firmware_init(fw);
 	json_find_number(source, "version", &fw->version);
 	json_find_number(source, "lpf", &fw->lpf);
 	json_find_number(source, "hpf", &fw->hpf);
@@ -1324,8 +1318,13 @@ firmware_t *firmware_from_json(firmware_t *fw, const JsonNode *source)
 	fw->receiver_select = nn;
 	return fw;
 }
-void firmware_free_json(firmware_t *fw)
+void firmware_init(firmware_t *fw)
 {
+	memset(fw, 0, sizeof(*fw));
+}
+void firmware_free(firmware_t *fw)
+{
+	if(! fw) return;
 	FREE(fw->method);
 	fw->method = NULL;
 }

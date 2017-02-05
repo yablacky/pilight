@@ -378,7 +378,7 @@ static int nano433Receive(struct rawcode_t *r) {
 								atof(array[5]),		// lpf
 								atof(array[6]));	// hpf
 
-							if(firmware.version > 0 && firmware.lpf > 0 && firmware.hpf > 0) {
+							if(firmware.version > 0) {
 								firmware_to_registry(&fw);
 
 								struct JsonNode *jmessage = json_mkobject();
@@ -391,6 +391,7 @@ static int nano433Receive(struct rawcode_t *r) {
 								json_delete(jmessage);
 								jmessage = NULL;
 							}
+							firmware_free(&fw);
 						}
 						array_free(&array, c);
 					} else {

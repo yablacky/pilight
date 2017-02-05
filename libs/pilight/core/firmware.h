@@ -51,9 +51,10 @@ typedef enum {
 	FW_MP_ATMEL32U4
 } mptype_t;
 
-firmware_t *firmware_from_hw(firmware_t *result, double version, double lpf, double hpf);
-firmware_t *firmware_from_json(firmware_t *fw, const JsonNode *source);
-void firmware_free_json(firmware_t *fw);	// must be called after firmware_from_json().
+void firmware_init(firmware_t *fw);
+firmware_t *firmware_from_hw(firmware_t *result, double version, double lpf, double hpf); // implies firmware_init();
+firmware_t *firmware_from_json(firmware_t *fw, const JsonNode *source);	// implies firmware_init()
+void firmware_free(firmware_t *fw);
 JsonNode *firmware_to_json(const firmware_t *fw, JsonNode *target);
 void firmware_to_registry(const firmware_t *fw);
 

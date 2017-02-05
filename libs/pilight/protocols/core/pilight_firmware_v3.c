@@ -54,6 +54,7 @@ static void createMessage(int version, int high, int low) {
 	firmware_t fw;
 	firmware_from_hw(&fw, version, low*10, high*10);
 	firmware_to_json(&fw, pilight_firmware_v3->message);
+	firmware_free(&fw);
 }
 
 static void parseCode(void) {

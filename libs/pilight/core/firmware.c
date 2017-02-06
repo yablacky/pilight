@@ -1281,7 +1281,7 @@ firmware_t *firmware_from_hw(firmware_t *fw, double version, double lpf, double 
 	if(method < countof(filter)) {
 		fw->method = STRDUP_OR_EXIT(filter[method]);
 	} else {
-		char unknown_method[64];	// not re-entrant/theadsafe. but wont allocate.
+		char unknown_method[64];
 		sprintf(unknown_method, "unknown %d", method);
 		fw->method = STRDUP_OR_EXIT(unknown_method);
 	}
@@ -1312,6 +1312,7 @@ firmware_t *firmware_from_json(firmware_t *fw, const JsonNode *source)
 	json_find_number(source, "lpf", &fw->lpf);
 	json_find_number(source, "hpf", &fw->hpf);
 	json_find_string(source, "method", &fw->method);
+	fw->method = STRDUP_OR_EXIT(fw->method);
 	json_find_number(source, "raw-version", &fw->raw_version);
 	nn = fw->receiver_select;
 	json_find_number(source, "receiver-select", &nn);

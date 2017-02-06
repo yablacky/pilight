@@ -233,6 +233,14 @@ static char *sb_finish(SB *sb)
 	// The next assertion does not hold, if there was a sb_putc(sb, 0)
 	// or sb_put(sb, "", 1). But ok, who does this?
 	assert(sb->start <= sb->cur && strlen(sb->start) == sb_size(sb));
+
+	size_t length = sb->cur - sb->start;
+
+	// realloc down to the size needed.
+	sb->start = (char*) REALLOC_OR_EXIT(sb->start, length + 1);
+	sb->cur = sb->start + length;
+	sb->end = sb->start + length;
+
 	return sb->start;
 }
 
@@ -629,9 +637,10 @@ JsonNode *json_delete(JsonNode *node)
 		case JSON_ARRAY:
 		case JSON_OBJECT:
 		{
-			JsonNode *child;
-			for (child = node->children.head; child != NULL; ) {
-				child = json_delete(child);
+			JsonNode *child, *next;
+			for (child = node->children.head; child != NULL; child = next) {
+				next = child->next;
+				json_delete(child);
 			}
 			break;
 		}
@@ -942,6 +951,9 @@ JsonNode *json_remove_from_parent(JsonNode *node)
 	if (node == NULL)
 		return NULL;
 
+	FREE(node->key);
+	node->key = NULL;
+
 	JsonNode *parent = node->parent;
 	if (parent == NULL)
 		return NULL;
@@ -957,11 +969,8 @@ JsonNode *json_remove_from_parent(JsonNode *node)
 	else
 		parent->children.tail = node->prev;
 
-	FREE(node->key);
-
 	node->parent = NULL;
 	node->prev = node->next = NULL;
-	node->key = NULL;
 
 	return prev;
 }
@@ -1254,6 +1263,7 @@ bool parse_string(const char **sp, const char **se, char **out)
 		sb_need(&sb, sizeof(throwaway_buffer));
 		b = sb.cur;
 	} else {
+		memset(&sb, 0, sizeof(sb));
 		b = throwaway_buffer;
 	}
 

@@ -191,35 +191,23 @@ void _free(void *a, const char *file, int line) {
 }
 
 /**
- * Allocate memory. Terminate the app almost gracefully on memory allocation failure.
- * @param int len Number of bytes to allocate. If null, the return value is NULL.
- * @return void* Pointer to allcated memory. NULL only if len was NULL.
+ * Check if a memory allocation was successful. exit the program if not.
+ * @param void *ptr Result of the allocation.
+ * @param size_t len Size used in allocation.
+ * @param char *op Name of function used for allocation.
+ * @return void *ptr In case the function returns et all.
  */
-void *_malloc_or_exit(unsigned long len, const char* file, int lino) {
-	void *p = MALLOC(len);
-	if(p != NULL || len == 0)
-		return p;
-	fprintf(stderr, "out of memory allocating %lu bytes at %s(%d)\n",
-		len, file ? file : __FILE__, file ? lino : __LINE__);
+void *_check_alloc_or_exit(void *ptr, size_t len, const char *op, const char *file, int lino)
+{
+	if (ptr != NULL || len == 0)
+		return ptr;
+	fprintf(stderr, "out of memory for %s of %u bytes at %s(%d)\n", op,
+		len, file ? file : "?", file ? lino : 0);
 	exit(EXIT_FAILURE);
+	return ptr;
 }
 
-/**
- * Reallocate memory. Terminate the app almost gracefully on memory allocation failure.
- * @param void* p Previously allocated buffer or NULL.
- * @param int len Number of bytes to allocate now. If null, the return value is NULL.
- * @return void* Pointer to allcated memory. NULL only if len was NULL.
- */
-void *_realloc_or_exit(void *p, unsigned long len, const char* file, int lino) {
-	p = REALLOC(p, len);
-	if(p != NULL || len == 0)
-		return p;
-	fprintf(stderr, "out of memory reallocating %lu bytes at %s(%d)\n",
-		len, file ? file : __FILE__, file ? lino : __LINE__);
-	exit(EXIT_FAILURE);
-	return NULL;
-}
-
+#if 0
 /**
  * Duplicate a string in separate memory.
  * @param char* s The string to duplicate. If NULL the return value is NULL.
@@ -232,19 +220,4 @@ char *pilight_strdup(const char *s) {
 	char *p = MALLOC(strlen(s) + 1);
 	return p == NULL ? p : strcpy(p, s);
 }
-
-/**
- * Duplicate a string in separate memory. Terminate the app almost gracefully on memory allocation failure.
- * @param char* s The string to duplicate. If NULL the return value is NULL.
- * @return char* The duplicate string. NULL only if input string was NULL.
- */
-char *_pilight_strdup_or_exit(const char *s, const char* file, int lino) {
-	char *p =pilight_strdup(s);
-	if(p != NULL || s == NULL) {
-		return p;
-	}
-	fprintf(stderr, "out of memory allocating %lu bytes at %s(%d)\n",
-		(unsigned long)strlen(s)+1, file ? file : __FILE__, file ? lino : __LINE__);
-	exit(EXIT_FAILURE);
-	return NULL;
-}
+#endif

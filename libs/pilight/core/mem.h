@@ -19,6 +19,8 @@
 #ifndef _MEM_H_
 #define _MEM_H_
 
+#include <malloc.h> // for size_t
+
 void xfree(void);
 void memtrack(void);
 
@@ -33,23 +35,21 @@ void _free(void *a, const char *file, int line);
 #define MALLOC(a) _malloc(a, __FILE__, __LINE__)
 #define REALLOC(a, b) _realloc(a, b, __FILE__, __LINE__)
 #define CALLOC(a, b) _calloc(a, b, __FILE__, __LINE__)
-#define FREE(a) _free((void *)(a), __FILE__, __LINE__),(a)=NULL	// WARNING: with twice (a) FREE(a[i++]) will go wrong!
+#define FREE(a) (_free((void *)(a), __FILE__, __LINE__),(a)=NULL)	// WARNING: with twice (a) FREE(a[i++]) will go wrong!
 */
 
 #define MALLOC(a) malloc(a)
 #define REALLOC(a, b) realloc(a, b)
 #define CALLOC(a, b) calloc(a, b)
-#define FREE(a) free((void *)(a)),(a)=NULL	// WARNING: with twice (a) FREE(a[i++]) will go wrong!
+#define FREE(a) (free((void *)(a)),(a)=NULL)	// WARNING: with twice (a) FREE(a[i++]) will go wrong!
 
-void *_malloc_or_exit(unsigned long a, const char *file, int line);
-void *_realloc_or_exit(void *a, unsigned long b, const char *file, int line);
+void *_check_alloc_or_exit(void *ptr, size_t len, const char *op, const char *file, int line);
 
-#define MALLOC_OR_EXIT(a)	_malloc_or_exit(a, __FILE__, __LINE__)
-#define REALLOC_OR_EXIT(a, b)	_realloc_or_exit(a, b, __FILE__, __LINE__)
+#define MALLOC_OR_EXIT(a)	_check_alloc_or_exit(MALLOC(a), (a), "malloc", __FILE__, __LINE__)
+#define REALLOC_OR_EXIT(a, b)	_check_alloc_or_exit(REALLOC((a), (b)), (b), "realloc", __FILE__, __LINE__)
 
-/* For all strdup's : strdup(NULL) will return NULL. */
-char *pilight_strdup(const char *s);
-char *_pilight_strdup_or_exit(const char *s, const char *file, int line);
-#define STRDUP_OR_EXIT(a)	_pilight_strdup_or_exit(a, __FILE__, __LINE__)
+/* strdup(NULL) will return NULL. */
+
+#define STRDUP_OR_EXIT(s)	({ const char *_1 = (s); _1 ? strcpy((char*)MALLOC_OR_EXIT(strlen(_1)+1), _1) : NULL; })
 
 #endif

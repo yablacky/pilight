@@ -229,7 +229,7 @@ static void client_remove(int id) {
 	}
 }
 
-static void broadcast_queue(const char *protoname, const struct JsonNode *json, enum origin_t origin) {
+static void broadcast_queue(const char *protoname, struct JsonNode *json, enum origin_t origin) {
 	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
 
 	if(main_loop == 1) {
@@ -240,13 +240,11 @@ static void broadcast_queue(const char *protoname, const struct JsonNode *json, 
 			struct bcqueue_t *bnode = NULL;
 			CONFIG_ALLOC_UNNAMED_NODE(bnode);
 
-			char *jstr = json_stringify(json, NULL);
-			bnode->jmessage = json_decode(jstr);
-			if(json_find_member(bnode->jmessage, "uuid") == NULL && strlen(pilight_uuid) > 0) {
-				json_append_member(bnode->jmessage, "uuid", json_mkstring(pilight_uuid));
+			if(strlen(pilight_uuid) > 0 && json_find_member(json, "uuid") == NULL) {
+				json_append_member(json, "uuid", json_mkstring(pilight_uuid));
 			}
-			json_free(jstr);
-			jstr = NULL;
+			bnode->jmessage = json;
+			json = NULL;
 
 			bnode->protoname = STRDUP_OR_EXIT(protoname);
 			bnode->origin = origin;
@@ -256,6 +254,17 @@ static void broadcast_queue(const char *protoname, const struct JsonNode *json, 
 		}
 		pthread_mutex_unlock(&bcqueue_lock);
 		pthread_cond_signal(&bcqueue_signal);
+	}
+	json_delete(json);
+}
+
+static void broadcast_queue_ro(const char *protoname, const struct JsonNode *json, enum origin_t origin) {
+	logprintf(LOG_STACK, "%s(...)", __FUNCTION__);
+
+	if(main_loop == 1) {
+		char *jstr = json_stringify(json, NULL);
+		broadcast_queue(protoname, json_decode(jstr), origin);
+		json_free(jstr);
 	}
 }
 
@@ -389,8 +398,7 @@ static void *broadcast(void *param) {
 							json_append_member(jmessage, "values", firmware_to_json(&fw, json_mkobject()));
 							json_append_member(jmessage, "origin", json_mkstring("core"));
 							json_append_member(jmessage, "type", json_mknumber(FIRMWARE, 0));
-							pilight.broadcast("pilight-firmware", jmessage, FW);
-							json_delete(jmessage);
+							broadcast_queue("pilight-firmware", jmessage, FW);
 							jmessage = NULL;
 						}
 						firmware_free(&fw);
@@ -509,16 +517,12 @@ static void receiver_create_message(protocol_t *protocol, const char *msg_name, 
 
 	if(protocol->message == NULL)
 		return;
-	char *valid = json_stringify(protocol->message, NULL);
-	json_delete(protocol->message);
-	protocol->message = NULL;
-	if(valid == NULL)
-		return;
 
 	struct JsonNode *jmessage = json_mkobject();
 
-	json_append_member(jmessage, "message", json_decode(valid));
+	json_append_member(jmessage, "message", protocol->message);
 	json_append_member(jmessage, "origin", json_mkstring("receiver"));
+	protocol->message = NULL;
 
 	char origin_msg_id[strlen(msg_name) + 64];
 	sprintf(origin_msg_id, "%s#%u", msg_name, msg_id);
@@ -538,8 +542,6 @@ static void receiver_create_message(protocol_t *protocol, const char *msg_name, 
 		json_mknumber(__sync_add_and_fetch(&total_message_count, 1), 0));
 
 	broadcast_queue(protocol->id, jmessage, RECEIVER);
-	json_delete(jmessage);
-	json_free(valid);
 }
 
 static void receive_parse_api(struct JsonNode *code, int hwtype) {
@@ -760,7 +762,6 @@ static void *send_code(void *param) {
 		}
 		if(message != NULL) {
 			broadcast_queue(sendqueue->protoname, message, sendqueue->origin);
-			json_delete(message);
 			message = NULL;
 		}
 
@@ -1355,6 +1356,7 @@ static void socket_parse_data(int i, char *buffer) {
 					}
 					if(json_find_string(json, "protocol", &pname) == 0) {
 						broadcast_queue(pname, json, MASTER);
+						json = NULL;
 					}
 				} else {
 					error = 1;
@@ -1662,6 +1664,7 @@ static void *clientize(void *param) {
 						if(strcmp(origin, "receiver") == 0 ||
 						   strcmp(origin, "sender") == 0) {
 							broadcast_queue(protocol, json, NODE);
+							json = NULL;
 					}
 				}
 				json_delete(json);
@@ -1990,8 +1993,7 @@ static void *pilight_stats(void *param) {
 						}
 					}
 					add_timestamp(procProtocol->message, "timestamp", &cpu_ram_time);
-					pilight.broadcast(procProtocol->id, procProtocol->message, STATS);
-					json_delete(procProtocol->message);
+					broadcast_queue(procProtocol->id, procProtocol->message, STATS);
 					procProtocol->message = NULL;
 
 					i = 0;
@@ -2260,7 +2262,7 @@ static int start_pilight(int argc, char **argv) {
 	config_init();
 
 	/* Export certain daemon function to global usage */
-	pilight.broadcast = &broadcast_queue;
+	pilight.broadcast = &broadcast_queue_ro;
 	pilight.send = &send_queue;
 	pilight.control = &control_device;
 	pilight.receive = &receive_parse_api;

@@ -50,8 +50,13 @@ static unsigned short threads = 0;
 static pthread_mutex_t lock;
 static pthread_mutexattr_t attr;
 
-#define CONNECTED				1
+#define CONNECTED		1
 #define DISCONNECTED 		0
+
+static const char *state_name[2] = {
+	"disconnected",
+	"connected",
+};
 
 static void *thread(void *param) {
 	struct protocol_threads_t *node = (struct protocol_threads_t *)param;
@@ -61,7 +66,7 @@ static void *thread(void *param) {
 	const char *ip = NULL;
 	const char *pstate = NULL;
 	double itmp = 0.0;
-	int state = 0, nrloops = 0, interval = 1;
+	int state = DISCONNECTED, nrloops = 0, interval = 1;
 
 	threads++;
 
@@ -86,31 +91,14 @@ static void *thread(void *param) {
 	while(loop) {
 		if(protocol_thread_wait(node, interval, &nrloops) == ETIMEDOUT) {
 			pthread_mutex_lock(&lock);
-			if(ping(ip) == 0) {
-				if(state == DISCONNECTED) {
-					state = CONNECTED;
-					pping->message = json_mkobject();
-					JsonNode *code = json_mkobject();
-					json_append_member(code, "ip", json_mkstring(ip));
-					json_append_member(code, "state", json_mkstring("connected"));
-
-					json_append_member(pping->message, "message", code);
-					json_append_member(pping->message, "origin", json_mkstring("receiver"));
-					json_append_member(pping->message, "protocol", json_mkstring(pping->id));
-
-					if(pilight.broadcast != NULL) {
-						pilight.broadcast(pping->id, pping->message, PROTOCOL);
-					}
-					json_delete(pping->message);
-					pping->message = NULL;
-				}
-			} else if(state == CONNECTED) {
-				state = DISCONNECTED;
+			int new_state = ping(ip) == 0 ? CONNECTED : DISCONNECTED;
+			if(new_state != state) {
+				state = new_state;
 
 				pping->message = json_mkobject();
 				JsonNode *code = json_mkobject();
 				json_append_member(code, "ip", json_mkstring(ip));
-				json_append_member(code, "state", json_mkstring("disconnected"));
+				json_append_member(code, "state", json_mkstring(state_name[state]));
 
 				json_append_member(pping->message, "message", code);
 				json_append_member(pping->message, "origin", json_mkstring("receiver"));
@@ -126,6 +114,8 @@ static void *thread(void *param) {
 		}
 	}
 	pthread_mutex_unlock(&lock);
+
+	json_delete_force(json);
 
 	threads--;
 	return (void *)NULL;

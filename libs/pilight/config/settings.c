@@ -491,6 +491,14 @@ static int settings_parse(const JsonNode *root) {
 				have_error = 1;
 				goto clear;
 			}
+		} else if(strcmp(jsettings->key, "site-title") == 0) {
+			if(jsettings->tag != JSON_STRING || !jsettings->string_ || !*jsettings->string_) {
+				logprintf(LOG_ERR, "config setting \"%s\" must contain non-empty string", jsettings->key);
+				have_error = 1;
+				goto clear;
+			} else {
+				settings_add_string(jsettings->key, jsettings->string_);
+			}
 		} else {
 			logprintf(LOG_ERR, "config setting \"%s\" is invalid", jsettings->key);
 			have_error = 1;

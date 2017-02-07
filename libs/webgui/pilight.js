@@ -14,7 +14,7 @@ var aStates = new Array();
 var bShowTabs = true;
 var iPLVersion = 0;
 var iPLNVersion = 0;
-var iFWVersion = 0;
+var sFWVersion = null;
 var aTimers = new Array();
 var sDateTimeFormat = "HH:mm:ss YYYY-MM-DD";
 var aDateTimeFormats = new Array();
@@ -788,8 +788,8 @@ function updateVersions() {
 	if(iPLVersion < iPLNVersion) {
 		txt = txt+" - "+language.available+" v"+iPLNVersion;
 	}
-	if(iFWVersion) {
-		txt = txt+" / firmware v"+iFWVersion;
+	if(sFWVersion) {
+		txt = txt+" / firmware v"+sFWVersion;
 	}
 	var obj = $('#version').text(txt);
 	obj.html(obj.html().replace(/\n/g,'<br/>'));
@@ -797,6 +797,9 @@ function updateVersions() {
 
 function createGUI(data) {
 	$('#tabs').append($("<ul></ul>"));
+	if('site-title' in (data.settings || {})) {
+	    $("title, .site-title").text(data.settings['site-title']);
+	}
 	$.each(data['gui'], function(dindex, dvalues) {
 		var lindex = dvalues['group'][0];
 		if(oWebsocket) {
@@ -1123,6 +1126,17 @@ function parseValues(data) {
 }
 
 function parseData(data) {
+
+	function parseFWVersion(firmware) {
+		firmware = firmware || {};
+		if('version' in firmware) {
+			sFWVersion = firmware['version'];
+		}
+		if('method' in firmware) {
+			sFWVersion = sFWVersion+" ["+firmware['method']+"]";
+		}
+	}
+
 	if(data.hasOwnProperty("gui") && data.hasOwnProperty("devices")) {
 		createGUI(data);
 		if('registry' in data && 'pilight' in data['registry']) {
@@ -1134,14 +1148,7 @@ function parseData(data) {
 					iNPLVersion = data['registry']['pilight']['version']['available'];
 				}
 			}
-			if('firmware' in data['registry']['pilight']) {
-				if('version' in data['registry']['pilight']['firmware']) {
-					iFWVersion = data['registry']['pilight']['firmware']['version'];
-				}
-				if('method' in data['registry']['pilight']['firmware']) {
-					iFWVersion = String(iFWVersion)+" ["+data['registry']['pilight']['firmware']['method']+"]";
-				}
-			}
+			parseFWVersion(data['registry']['pilight']['firmware']);
 			updateVersions();
 		}
 		if(oWebsocket) {
@@ -1154,7 +1161,7 @@ function parseData(data) {
 			if(data['type'] == -1) {
 				updateProcStatus(data['values']);
 			} else if(data['type'] == -2) {
-				iFWVersion = data['values']['version'];
+				parseFWVersion(data['values']);
 				updateVersions();
 			}
 		}
@@ -1173,55 +1180,29 @@ window.onbeforeunload = function() {
 	}
 }
 
+function showConnectionProblem() {
+	$.mobile.loading('show', {
+		'text': bConnected ? language.connection_lost : language.connection_failed,
+		'textVisible': true,
+		'theme': 'b'
+	});
+	$('html').on({ 'touchstart mousedown' : function(){location.reload();}});
+}
+
 function startAjax() {
-	$.get(sHTTPProtocol+'://'+location.host+'/config?internal&'+$.now(), function(txt) {
+	function onLoaded(txt) {
 		bConnected = true;
 		if(!bSending) {
 			var data = $.parseJSON(txt);
 			parseData(data);
 		}
-	}).fail(function() {
-		window.clearInterval(load);
-		if(bConnected) {
-			$.mobile.loading('show', {
-				'text': language.connection_lost,
-				'textVisible': true,
-				'theme': 'b'
-			});
-			$('html').on({ 'touchstart mousedown' : function(){location.reload();}});
-		} else {
-			$.mobile.loading('show', {
-				'text': language.connection_failed,
-				'textVisible': true,
-				'theme': 'b'
-			});
-			$('html').on({ 'touchstart mousedown' : function(){location.reload();}});
-		}
-	});
+	}
+
+	$.get(sHTTPProtocol+'://'+location.host+'/config?internal&'+$.now(), onLoaded).fail(showConnectionProblem);
 	var load = window.setInterval(function() {
-		$.get(sHTTPProtocol+'://'+location.host+'/values?'+$.now(), function(txt) {
-			bConnected = true;
-			if(!bSending) {
-				var data = $.parseJSON(txt);
-				parseData(data);
-			}
-		}).fail(function() {
+		$.get(sHTTPProtocol+'://'+location.host+'/values?'+$.now(), onLoaded).fail(function(){
 			window.clearInterval(load);
-			if(bConnected) {
-				$.mobile.loading('show', {
-					'text': language.connection_lost,
-					'textVisible': true,
-					'theme': 'b'
-				});
-				$('html').on({ 'touchstart mousedown' : function(){location.reload();}});
-			} else {
-				$.mobile.loading('show', {
-					'text': language.connection_failed,
-					'textVisible': true,
-					'theme': 'b'
-				});
-				$('html').on({ 'touchstart mousedown' : function(){location.reload();}});
-			}
+			showConnectionProblem();
 		});
 	}, 1000);
 }
@@ -1238,23 +1219,7 @@ function startWebsockets() {
 			bConnected = true;
 			oWebsocket.send("{\"action\":\"request config\"}");
 		};
-		oWebsocket.onclose = function(evt) {
-			if(bConnected) {
-				$.mobile.loading('show', {
-					'text': language.connection_lost,
-					'textVisible': true,
-					'theme': 'b'
-				});
-				$('html').on({ 'touchstart mousedown' : function(){location.reload();}});
-			} else {
-				$.mobile.loading('show', {
-					'text': language.connection_failed,
-					'textVisible': true,
-					'theme': 'b'
-				});
-				$('html').on({ 'touchstart mousedown' : function(){location.reload();}});
-			}
-		};
+		oWebsocket.onclose = showConnectionProblem;
 		oWebsocket.onerror = function(evt) {
 			$.mobile.loading('show', {
 				'text': language.unexpected_error,

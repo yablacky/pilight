@@ -303,12 +303,12 @@ static void *broadcast(void *param) {
 				json_find_number(bcqueue->jmessage, "type", &tmp);
 				char *conf = json_stringify(bcqueue->jmessage, NULL);
 
-				struct clients_t *tmp_clients = clients_head;
-				for(; tmp_clients; tmp_clients = tmp_clients->next) {
-					if(((int)tmp < 0 && tmp_clients->core == 1) ||
-					   ((int)tmp >= 0 && tmp_clients->config == 1) ||
-						 ((int)tmp == PROCESS && tmp_clients->stats == 1)) {
-						socket_write(tmp_clients->id, conf);
+				struct clients_t *client = clients_head;
+				for(; client; client = client->next) {
+					if(((int)tmp < 0 && client->core == 1) ||
+					   ((int)tmp >= 0 && client->config == 1) ||
+						 ((int)tmp == PROCESS && client->stats == 1)) {
+						socket_write(client->id, conf);
 						broadcasted = 1;
 					}
 				}
@@ -330,9 +330,9 @@ static void *broadcast(void *param) {
 				if(devices_update(bcqueue->protoname, bcqueue->jmessage, bcqueue->origin, &jret) == 0) {
 					char *tmp = json_stringify(jret, NULL);
 
-					struct clients_t *tmp_clients = clients_head;
-					for(;tmp_clients; tmp_clients = tmp_clients->next) {
-						if(tmp_clients->config != 1) {
+					struct clients_t *client = clients_head;
+					for(;client; client = client->next) {
+						if(client->config != 1) {
 							continue;
 						}
 						unsigned short match1 = 0;
@@ -344,12 +344,12 @@ static void *broadcast(void *param) {
 							if(jchilds->tag == JSON_STRING) {
 								struct gui_values_t *gui_values = NULL;
 								if(!(gui_values = gui_media(jchilds->string_)) ||
-								    strcmp(tmp_clients->media, "all") == 0) {
+								    strcmp(client->media, "all") == 0) {
 									match1 = 1;
 									match2 = 1;
 								} else for(; gui_values; gui_values = gui_values->next) {
 									if(gui_values->type == JSON_STRING && (
-									    strcmp(gui_values->string_, tmp_clients->media) == 0 ||
+									    strcmp(gui_values->string_, client->media) == 0 ||
 									    strcmp(gui_values->string_, "all") == 0)) {
 										match1 = 1;
 										match2 = 1;
@@ -362,7 +362,7 @@ static void *broadcast(void *param) {
 						}
 						if(match1 == 1) {
 							char *conf = json_stringify(jtmp, NULL);
-							socket_write(tmp_clients->id, conf);
+							socket_write(client->id, conf);
 							logprintf(LOG_DEBUG, "broadcasted: %s", conf);
 							json_free(conf);
 						}
@@ -413,11 +413,11 @@ static void *broadcast(void *param) {
 				}
 
 				/* Write the message to all receivers */
-				struct clients_t *tmp_clients = clients_head;
-				for(; tmp_clients; tmp_clients = tmp_clients->next) {
-					if(tmp_clients->receiver == 1 && tmp_clients->forward == 0) {
-						if(strcmp(out, "{}") != 0 && nrchilds > 1) {
-							socket_write(tmp_clients->id, out);
+				if(strcmp(out, "{}") != 0 && nrchilds > 1) {
+					struct clients_t *client = clients_head;
+					for(; client; client = client->next) {
+						if(client->receiver == 1 && client->forward == 0) {
+							socket_write(client->id, out);
 							broadcasted = 1;
 						}
 					}
@@ -802,7 +802,7 @@ static int send_queue_nolock(struct JsonNode *json, enum origin_t origin) {
 
 	int raw[MAXPULSESTREAMLENGTH];
 	struct timeval tcurrent;
-	struct clients_t *tmp_clients = NULL;
+	struct clients_t *client = NULL;
 	const char *uuid = NULL;
 	char *buffer = NULL;
 	/* Hold the final protocol struct */
@@ -828,10 +828,10 @@ static int send_queue_nolock(struct JsonNode *json, enum origin_t origin) {
 		return -1;
 	}
 
-	tmp_clients = clients_head;
-	for(;tmp_clients; tmp_clients = tmp_clients->next) {
-		if(tmp_clients->forward == 1) {
-			socket_write(tmp_clients->id, buffer);
+	client = clients_head;
+	for(;client; client = client->next) {
+		if(client->forward == 1) {
+			socket_write(client->id, buffer);
 		}
 	}
 	json_free(buffer);
@@ -1113,12 +1113,10 @@ static void socket_parse_data(int i, char *buffer) {
 	struct sockaddr_in address;
 	struct JsonNode *json = NULL;
 	const struct JsonNode *options = NULL;
-	struct clients_t *tmp_clients = NULL;
-	struct clients_t *client = NULL;
 	int sd = -1;
 	int addrlen = sizeof(address);
 	const char *action = NULL, *media = NULL, *status = NULL;
-	int error = 0, exists = 0;
+	int error = 0;
 
 	if(pilight.runmode == ADHOC) {
 		sd = sockfd;
@@ -1139,21 +1137,15 @@ static void socket_parse_data(int i, char *buffer) {
 		if(strstr(buffer, " HTTP/")) {
 			client_webserver_parse_code(i, buffer);
 			socket_close(sd);
-		} else if(json_validate(buffer, NULL) == true) {
-#else
-		if(json_validate(buffer, NULL) == true) {
+		} else
 #endif
-			json = json_decode(buffer);
+		if((json = json_decode(buffer)) != NULL) {
+			struct clients_t *client = clients_head;
+			while(client && client->id != sd)
+				client = client->next;
 			if((json_find_string(json, "action", &action)) == 0) {
-				tmp_clients = clients_head;
-				for(; tmp_clients; tmp_clients = tmp_clients->next) {
-					if(tmp_clients->id == sd) {
-						exists = 1;
-						client = tmp_clients;
-						break;
-					}
-				}
 				if(strcmp(action, "identify") == 0) {
+					int exists = !!client;
 					/* Check if client doesn't already exist */
 					if(exists == 0) {
 						client = MALLOC_OR_EXIT(sizeof(struct clients_t));
@@ -1183,19 +1175,19 @@ static void socket_parse_data(int i, char *buffer) {
 					if(json_find_string(json, "uuid", &t) == 0) {
 						strcpy(client->uuid, t);
 					}
-					const struct JsonNode *childs = NULL;
+					const struct JsonNode *opt = NULL;
 					options = json_find_member(json, "options");
-					json_foreach(childs, options) {
-						if(strcmp(childs->key, "core") == 0 && childs->tag == JSON_NUMBER) {
-							client->core = (int)childs->number_ == 1;
-						} else if(strcmp(childs->key, "stats") == 0 && childs->tag == JSON_NUMBER) {
-							client->stats = (int)childs->number_ == 1;
-						} else if(strcmp(childs->key, "receiver") == 0 && childs->tag == JSON_NUMBER) {
-							client->receiver = (int)childs->number_ == 1;
-						} else if(strcmp(childs->key, "config") == 0 && childs->tag == JSON_NUMBER) {
-							client->config = (int)childs->number_ == 1;
-						} else if(strcmp(childs->key, "forward") == 0 && childs->tag == JSON_NUMBER) {
-							client->forward = (int)childs->number_ == 1;
+					json_foreach(opt, options) {
+						if(strcmp(opt->key, "core") == 0 && opt->tag == JSON_NUMBER) {
+							client->core = (int)opt->number_ == 1;
+						} else if(strcmp(opt->key, "stats") == 0 && opt->tag == JSON_NUMBER) {
+							client->stats = (int)opt->number_ == 1;
+						} else if(strcmp(opt->key, "receiver") == 0 && opt->tag == JSON_NUMBER) {
+							client->receiver = (int)opt->number_ == 1;
+						} else if(strcmp(opt->key, "config") == 0 && opt->tag == JSON_NUMBER) {
+							client->config = (int)opt->number_ == 1;
+						} else if(strcmp(opt->key, "forward") == 0 && opt->tag == JSON_NUMBER) {
+							client->forward = (int)opt->number_ == 1;
 						} else {
 							error = 1;
 							break;
@@ -1310,50 +1302,49 @@ static void socket_parse_data(int i, char *buffer) {
 						}
 					}
 				} else if(strcmp(action, "request config") == 0) {
-					struct JsonNode *jsend = json_mkobject();
-					struct JsonNode *jconfig = NULL;
-					if(client->forward == 1) {
-						jconfig = config_print(CONFIG_FORWARD, client->media);
+					if(!client) {
+						logprintf(LOG_DEBUG, "client id %d not found", sd);
 					} else {
-						jconfig = config_print(CONFIG_INTERNAL, client->media);
+						struct JsonNode *jsend = json_mkobject();
+						struct JsonNode *jconfig = NULL;
+						if(client->forward == 1) {
+							jconfig = config_print(CONFIG_FORWARD, client->media);
+						} else {
+							jconfig = config_print(CONFIG_INTERNAL, client->media);
+						}
+						json_append_member(jsend, "message", json_mkstring("config"));
+						json_append_member(jsend, "config", jconfig);
+						char *output = json_stringify(jsend, NULL);
+						str_replace("%", "%%", &output);
+						socket_write(sd, output);
+						json_free(output);
+						json_delete(jsend);
 					}
-					json_append_member(jsend, "message", json_mkstring("config"));
-					json_append_member(jsend, "config", jconfig);
-					char *output = json_stringify(jsend, NULL);
-					str_replace("%", "%%", &output);
-					socket_write(sd, output);
-					json_free(output);
-					json_delete(jsend);
 				} else if(strcmp(action, "request values") == 0) {
-					struct JsonNode *jsend = json_mkobject();
-					struct JsonNode *jvalues = devices_values(client->media);
-					json_append_member(jsend, "message", json_mkstring("values"));
-					json_append_member(jsend, "values", jvalues);
-					char *output = json_stringify(jsend, NULL);
-					socket_write(sd, output);
-					json_free(output);
-					json_delete(jsend);
+					if(!client) {
+						logprintf(LOG_DEBUG, "client id %d not found", sd);
+					} else {
+						struct JsonNode *jsend = json_mkobject();
+						struct JsonNode *jvalues = devices_values(client->media);
+						json_append_member(jsend, "message", json_mkstring("values"));
+						json_append_member(jsend, "values", jvalues);
+						char *output = json_stringify(jsend, NULL);
+						socket_write(sd, output);
+						json_free(output);
+						json_delete(jsend);
+					}
 				/*
 				 * Parse received codes from nodes
 				 */
 				} else if(strcmp(action, "update") == 0) {
-					const struct JsonNode *jvalues = NULL;
-					const char *pname = NULL;
-					if((jvalues = json_find_member(json, "values")) != NULL) {
-						exists = 0;
-						tmp_clients = clients_head;
-						for(; tmp_clients; tmp_clients = tmp_clients->next) {
-							if(tmp_clients->id == sd) {
-								exists = 1;
-								client = tmp_clients;
-								break;
-							}
-						}
-						if(exists) {
+					if(client) {
+						const struct JsonNode *jvalues = NULL;
+						if((jvalues = json_find_member(json, "values")) != NULL) {
 							json_find_number(jvalues, "ram", &client->ram);
 							json_find_number(jvalues, "cpu", &client->cpu);
 						}
 					}
+					const char *pname = NULL;
 					if(json_find_string(json, "protocol", &pname) == 0) {
 						broadcast_queue(pname, json, MASTER);
 						json = NULL;
@@ -1362,15 +1353,9 @@ static void socket_parse_data(int i, char *buffer) {
 					error = 1;
 				}
 			} else if((json_find_string(json, "status", &status)) == 0) {
-				tmp_clients = clients_head;
-				for(; tmp_clients; tmp_clients = tmp_clients->next) {
-					if(tmp_clients->id == sd) {
-						exists = 1;
-						client = tmp_clients;
-						break;
-					}
-				}
-				if(strcmp(status, "success") == 0) {
+				if(!client) {
+					logprintf(LOG_DEBUG, "client id %d not found", sd);
+				} else if(strcmp(status, "success") == 0) {
 					logprintf(LOG_DEBUG, "client \"%s\" successfully executed our latest request", client->uuid);
 				} else if(strcmp(status, "failed") == 0) {
 					logprintf(LOG_DEBUG, "client \"%s\" failed executing our latest request", client->uuid);
@@ -1378,8 +1363,8 @@ static void socket_parse_data(int i, char *buffer) {
 			} else {
 				error = 1;
 			}
-			json_delete(json);
 		}
+		json_delete(json);
 	}
 	if(error == 1) {
 		client_remove(sd);
@@ -1598,8 +1583,7 @@ static void *clientize(void *param) {
 
 		if(socket_read(sockfd, &recvBuff, 0) == 0) {
 			logprintf(LOG_DEBUG, "socket recv: %s", recvBuff);
-			if(json_validate(recvBuff, NULL) == true) {
-				json = json_decode(recvBuff);
+			if((json = json_decode(recvBuff)) != NULL) {
 				if(json_find_string(json, "message", &message) == 0) {
 					if(strcmp(message, "config") == 0) {
 						const struct JsonNode *jconfig = NULL;
@@ -1766,11 +1750,11 @@ static int main_gc(void) {
 		pthread_cond_signal(&bcqueue_signal);
 	}
 
-	struct clients_t *tmp_clients;
+	struct clients_t *client;
 	while(clients_head) {
-		tmp_clients = clients_head;
+		client = clients_head;
 		clients_head = clients_head->next;
-		FREE(tmp_clients);
+		FREE(client);
 	}
 
 #ifndef _WIN32
@@ -1985,11 +1969,11 @@ static void *pilight_stats(void *param) {
 					json_append_member(procProtocol->message, "values", code);
 					json_append_member(procProtocol->message, "origin", json_mkstring("core"));
 					json_append_member(procProtocol->message, "type", json_mknumber(PROCESS, 0));
-					struct clients_t *tmp_clients = clients_head;
-					for(; tmp_clients; tmp_clients = tmp_clients->next) {
-						if(tmp_clients->cpu > 0 && tmp_clients->ram > 0) {
+					struct clients_t *client = clients_head;
+					for(; client; client = client->next) {
+						if(client->cpu > 0 && client->ram > 0) {
 							logprintf(LOG_DEBUG, "- client: %s cpu: %f%%, ram: %f%%",
-								tmp_clients->uuid, tmp_clients->cpu, tmp_clients->ram);
+								client->uuid, client->cpu, client->ram);
 						}
 					}
 					add_timestamp(procProtocol->message, "timestamp", &cpu_ram_time);
